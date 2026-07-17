@@ -151,11 +151,11 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
 @keyframes pulse{0%{transform:scale(.8);opacity:.85}70%{transform:scale(2.5);opacity:0}100%{opacity:0}}
 .foco{width:5px;height:5px;border-radius:50%;background:#FF3B1F;box-shadow:0 0 6px 1px #FF3B1F}
 .foco-inpe{width:5px;height:5px;border-radius:50%;background:#3BC8F2;box-shadow:0 0 6px 1px #3BC8F2}
-.uc-alert{width:14px;height:13px;background:var(--r-crit);clip-path:polygon(50% 0%,0% 100%,100% 100%);
-  display:flex;align-items:flex-end;justify-content:center;color:#fff;font-family:var(--display);
-  font-weight:700;font-size:9px;line-height:1;padding-bottom:1px;box-shadow:0 0 6px -1px var(--r-crit)}
-.uc-alert-mini{display:inline-block;width:12px;height:11px;background:var(--r-crit);
-  clip-path:polygon(50% 0%,0% 100%,100% 100%);flex:none}
+.uc-alert{width:20px;height:20px;display:flex;align-items:center;justify-content:center;
+  font-size:19px;line-height:1;filter:drop-shadow(0 0 4px rgba(242,169,59,.85));
+  animation:blink 1.1s ease-in-out infinite}
+.uc-alert-mini{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;
+  font-size:15px;line-height:1;flex:none}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 @media(max-width:940px){
   body{overflow:auto}
@@ -210,7 +210,7 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
         <div class="lg-row" id="lg-uc" style="display:none;margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
           <span class="sw" style="background:transparent;border:1.5px dashed #5FBF7A;width:16px;height:9px"></span>Unidade de Conservação (estadual)</div>
         <div class="lg-row" id="lg-uc-alert" style="display:none">
-          <span class="uc-alert-mini"></span>Foco em UC / zona de amortecimento</div>
+          <span class="uc-alert-mini">⚠️</span>Foco em UC / zona de amortecimento</div>
       </div>
     </div>
 
@@ -720,8 +720,8 @@ function draw(){
   const alertTip=f=>(f.ucAlert.status==='dentro'?'Dentro de ':'Zona de amortecimento de ')+f.ucAlert.uc;
   const addAlert=f=>{
     if(!state.showUc||!f.ucAlert) return;
-    L.marker([f.lat,f.lng],{icon:L.divIcon({className:'',html:'<div class="uc-alert">!</div>',iconSize:[14,13],iconAnchor:[7,16]})})
-      .bindTooltip(alertTip(f),{direction:'top',offset:[0,-14]}).addTo(alertLayer);
+    L.marker([f.lat,f.lng],{icon:L.divIcon({className:'',html:'<div class="uc-alert">⚠️</div>',iconSize:[20,20],iconAnchor:[10,10]})})
+      .bindTooltip(alertTip(f),{direction:'top',offset:[0,-11]}).addTo(alertLayer);
   };
   const firmsVis=state.showFirms?visibleFirms():null;
   if(firmsVis){

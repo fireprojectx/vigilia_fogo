@@ -94,6 +94,10 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
 .chip .dot{width:9px;height:9px;border-radius:50%}
 .chip.off{opacity:.35}
 .chip.off .lbl{text-decoration:line-through}
+.chip-actions{display:flex;gap:9px}
+.chip-actions button{background:none;border:none;padding:0;color:var(--muted);font-size:10.5px;
+  font-weight:600;letter-spacing:.02em;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.chip-actions button:hover{color:var(--ember)}
 .sel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
 .sel-name{font-family:var(--display);font-size:22px;font-weight:600;line-height:1.05;margin:0}
 .sel-bioma{font-size:11px;letter-spacing:.1em;text-transform:uppercase;margin-top:4px;color:var(--muted)}
@@ -267,11 +271,23 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
       <div class="block">
         <p class="eyebrow"><span class="num">05</span> Comando (COB) e Batalhão (BBM)</p>
         <div class="field" style="margin-top:0">
-          <label style="margin-bottom:7px"><span>Comando Operacional de Bombeiros</span></label>
+          <label style="margin-bottom:7px">
+            <span>Comando Operacional de Bombeiros</span>
+            <span class="chip-actions">
+              <button type="button" id="cob-all">marcar todos</button>
+              <button type="button" id="cob-none">desmarcar</button>
+            </span>
+          </label>
           <div class="chips" id="chips-cob"></div>
         </div>
         <div class="field">
-          <label style="margin-bottom:7px"><span>Batalhão Bombeiro Militar</span></label>
+          <label style="margin-bottom:7px">
+            <span>Batalhão Bombeiro Militar</span>
+            <span class="chip-actions">
+              <button type="button" id="bbm-all">marcar todos</button>
+              <button type="button" id="bbm-none">desmarcar</button>
+            </span>
+          </label>
           <div class="chips" id="chips-bbm"></div>
         </div>
       </div>
@@ -944,7 +960,7 @@ function buildChipGroup(containerId, values, stateSet, onToggle){
   el.innerHTML='';
   values.forEach(v=>{
     const c=document.createElement('button');
-    c.className='chip';
+    c.className='chip'+(stateSet.has(v)?'':' off');
     c.innerHTML=`<span class="dot" style="background:var(--border)"></span><span class="lbl">${v}</span>`;
     c.onclick=()=>{
       if(stateSet.has(v)){stateSet.delete(v);c.classList.add('off');}
@@ -954,6 +970,11 @@ function buildChipGroup(containerId, values, stateSet, onToggle){
     el.appendChild(c);
   });
 }
+function setChipGroupAll(containerId, values, stateSet, selected, onToggle){
+  values.forEach(v=>selected?stateSet.add(v):stateSet.delete(v));
+  document.querySelectorAll('#'+containerId+' .chip').forEach(c=>c.classList.toggle('off', !selected));
+  onToggle();
+}
 function buildCobBbmChips(){
   const cobs=[...new Set(MUNIS.map(m=>m.cob).filter(Boolean))].sort();
   const bbms=[...new Set(MUNIS.map(m=>m.bbm).filter(Boolean))].sort((a,b)=>bbmSortKey(a).localeCompare(bbmSortKey(b),undefined,{numeric:true}));
@@ -961,6 +982,10 @@ function buildCobBbmChips(){
   state.filterBbm=new Set(bbms);
   buildChipGroup('chips-cob', cobs, state.filterCob, draw);
   buildChipGroup('chips-bbm', bbms, state.filterBbm, draw);
+  document.getElementById('cob-all').onclick=()=>setChipGroupAll('chips-cob', cobs, state.filterCob, true, draw);
+  document.getElementById('cob-none').onclick=()=>setChipGroupAll('chips-cob', cobs, state.filterCob, false, draw);
+  document.getElementById('bbm-all').onclick=()=>setChipGroupAll('chips-bbm', bbms, state.filterBbm, true, draw);
+  document.getElementById('bbm-none').onclick=()=>setChipGroupAll('chips-bbm', bbms, state.filterBbm, false, draw);
 }
 
 document.getElementById('export').onclick=()=>{

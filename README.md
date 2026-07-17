@@ -60,6 +60,8 @@ automaticamente, o `server.js` já respeita.
 | `GET /api/firms` | `{ focos: [{lat, lng, conf, frp, when}], sensor, updated, cached, age_s }` |
 | `GET /api/inpe` | `{ focos: [{id, lat, lng, sat, bioma, frp, when}], updated, cached, age_s }` |
 | `GET /api/articulacao` | `{ municipios: [{ibge, municipio, cob, bbm, tipo, unidade, lat, lng}], updated, cached, age_s }` |
+| `GET /api/uc` | `{ features: [{nome, categoria, grupo, geometry}], updated, cached, age_s }` |
+| `GET /api/uc-amortecimento` | `{ features: [{nome, categoria, geometry}], updated, cached, age_s }` |
 | `GET /api/health` | status da chave e do cache |
 
 O `/api/firms` tem cache de 10 min em memória — os satélites passam ~2× por dia,
@@ -91,6 +93,24 @@ municípios de referência são casados por nome com essa planilha e ganham colu
 COB/BBM/unidade responsável no painel; os demais ~819 municípios entram no mapa só como
 pontos filtráveis por COB/BBM, sem clima nem IRIV — ver "Limites conhecidos".
 
+O `/api/uc` e o `/api/uc-amortecimento` proxeiam o GeoServer público da SEMAD/IDE-Sisema
+(`geoserver.meioambiente.mg.gov.br`), que publica as Unidades de Conservação (UC)
+estaduais de MG e as zonas de amortecimento oficiais (raio legal de 3 km para UCs sem
+plano de manejo aprovado, mais o buffer customizado das que têm plano — CONAMA 13/1990).
+As geometrias vêm em SIRGAS2000 e são reprojetadas para EPSG:4326 na própria requisição
+WFS; o servidor ainda simplifica cada polígono (Douglas-Peucker, tolerância 0,001° ≈
+110 m) antes de responder, o que reduz o payload de ~2,8 MB para ~290 KB no contorno das
+95 UCs, e de ~4,9 MB para ~320 KB nas 77 zonas de amortecimento estaduais. Cache de 24h —
+é geometria administrativa, muda raramente.
+
+No front-end, cada foco (FIRMS ou INPE) é testado por point-in-polygon contra os
+polígonos de UC e, se não estiver dentro de nenhuma, contra os de amortecimento. O
+resultado fica anexado ao próprio objeto do foco (`foco.ucAlert`) assim que os dados
+carregam, em vez de recalculado a cada redesenho do mapa — o `draw()` roda a cada tick do
+slider de vento, e repetir ~170 testes de polígono por foco nesse ritmo seria
+desperdício. Focos dentro de uma UC ou na sua zona de amortecimento ganham uma plaquinha
+de alerta (triângulo com "!") no mapa.
+
 ## Limites conhecidos
 
 - Clima e vento vêm de modelo global (ECMWF/GFS), não de estação de superfície.
@@ -112,5 +132,6 @@ pontos filtráveis por COB/BBM, sem clima nem IRIV — ver "Limites conhecidos".
 - NASA FIRMS — https://firms.modaps.eosdis.nasa.gov
 - INPE (Programa Queimadas) — https://data.inpe.br/queimadas/dados-abertos (CSV diário, sem chave)
 - Corpo de Bombeiros MG — planilha pública de articulação (COB/BBM por município)
+- SEMAD/IDE-Sisema — geoserver.meioambiente.mg.gov.br (UCs estaduais + zonas de amortecimento)
 - Contorno municipal — IBGE
 - Método — CSR/UFMG (FIP-Cerrado); FMA: Soares, R.V. (1972)

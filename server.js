@@ -44,6 +44,18 @@ const ARTIC_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRQFTo0KYBucY
 const ARTIC_TTL_MS = 6 * 60 * 60 * 1000;
 let articCache = { at: 0, body: null, count: 0 };
 
+// Unidades de Conservação (UC) estaduais de MG + zonas de amortecimento — GeoServer
+// público da SEMAD/IDE-Sisema. Geometria muda raramente, então cache bem mais longo
+// que FIRMS/INPE, e simplificamos os polígonos (Douglas-Peucker) antes de responder
+// pra não mandar megabytes de vértices que não fazem diferença no zoom do estado.
+const GEOSERVER_BASE = 'https://geoserver.meioambiente.mg.gov.br/ows';
+const UC_LAYER = 'ide_2010_mg_unidades_conservacao_estaduais_pol';
+const UC_BUFFER_LAYERS = ['ide_2011_mg_amortecimento_uc_raio_3km_pol', 'ide_2011_mg_amortecimento_uc_plano_manejo_pol'];
+const SIMPLIFY_TOL = 0.001;
+const UC_TTL_MS = 24 * 60 * 60 * 1000;
+let ucCache = { at: 0, body: null, count: 0 };
+let ucAmortCache = { at: 0, body: null, count: 0 };
+
 function inpeUrl(date) {
   const y = date.getUTCFullYear();
   const m = String(date.getUTCMonth() + 1).padStart(2, '0');
@@ -187,6 +199,78 @@ app.get('/api/articulacao', async (req, res) => {
   }
 });
 
+app.get('/api/uc', async (req, res) => {
+  const fresh = Date.now() - ucCache.at < UC_TTL_MS;
+  if (fresh && ucCache.body) {
+    return res.json({ ...ucCache.body, cached: true, age_s: Math.round((Date.now() - ucCache.at) / 1000) });
+  }
+
+  try {
+    const fc = await fetchWfsLayer(UC_LAYER);
+    const features = fc.features
+      .filter(f => f.geometry)
+      .map(f => ({
+        nome: f.properties.nome_uc || '',
+        categoria: f.properties.categoria || '',
+        grupo: f.properties.grupo || '',
+        geometry: simplifyGeometry(f.geometry, SIMPLIFY_TOL)
+      }));
+    if (!features.length) throw new Error('GeoServer sem feições de UC.');
+
+    ucCache = { at: Date.now(), body: { features, updated: new Date().toISOString() }, count: features.length };
+    res.json({ ...ucCache.body, cached: false, age_s: 0 });
+  } catch (e) {
+    if (ucCache.body) {
+      return res.json({
+        ...ucCache.body,
+        cached: true,
+        stale: true,
+        age_s: Math.round((Date.now() - ucCache.at) / 1000),
+        warning: e.message
+      });
+    }
+    res.status(502).json({ error: e.message });
+  }
+});
+
+app.get('/api/uc-amortecimento', async (req, res) => {
+  const fresh = Date.now() - ucAmortCache.at < UC_TTL_MS;
+  if (fresh && ucAmortCache.body) {
+    return res.json({ ...ucAmortCache.body, cached: true, age_s: Math.round((Date.now() - ucAmortCache.at) / 1000) });
+  }
+
+  try {
+    const fcs = await Promise.all(UC_BUFFER_LAYERS.map(fetchWfsLayer));
+    const features = [];
+    fcs.forEach(fc => {
+      fc.features.forEach(f => {
+        if (!f.geometry) return;
+        if (f.properties.esfera !== 'Estadual') return;
+        features.push({
+          nome: f.properties.nome_uc || '',
+          categoria: f.properties.categoria || '',
+          geometry: simplifyGeometry(f.geometry, SIMPLIFY_TOL)
+        });
+      });
+    });
+    if (!features.length) throw new Error('GeoServer sem feições de amortecimento estadual.');
+
+    ucAmortCache = { at: Date.now(), body: { features, updated: new Date().toISOString() }, count: features.length };
+    res.json({ ...ucAmortCache.body, cached: false, age_s: 0 });
+  } catch (e) {
+    if (ucAmortCache.body) {
+      return res.json({
+        ...ucAmortCache.body,
+        cached: true,
+        stale: true,
+        age_s: Math.round((Date.now() - ucAmortCache.at) / 1000),
+        warning: e.message
+      });
+    }
+    res.status(502).json({ error: e.message });
+  }
+});
+
 app.get('/api/health', (req, res) => {
   res.json({
     ok: true,
@@ -196,7 +280,11 @@ app.get('/api/health', (req, res) => {
     cache_inpe_focos: inpeCache.count,
     cache_inpe_age_s: inpeCache.at ? Math.round((Date.now() - inpeCache.at) / 1000) : null,
     cache_artic_municipios: articCache.count,
-    cache_artic_age_s: articCache.at ? Math.round((Date.now() - articCache.at) / 1000) : null
+    cache_artic_age_s: articCache.at ? Math.round((Date.now() - articCache.at) / 1000) : null,
+    cache_uc_count: ucCache.count,
+    cache_uc_age_s: ucCache.at ? Math.round((Date.now() - ucCache.at) / 1000) : null,
+    cache_uc_amort_count: ucAmortCache.count,
+    cache_uc_amort_age_s: ucAmortCache.at ? Math.round((Date.now() - ucAmortCache.at) / 1000) : null
   });
 });
 
@@ -322,6 +410,59 @@ function parseArticulacaoCsv(txt) {
     });
   }
   return out;
+}
+
+async function fetchWfsLayer(typeName) {
+  const url = `${GEOSERVER_BASE}?service=wfs&version=2.0.0&request=GetFeature`
+    + `&typeName=IDE:${typeName}&outputFormat=application/json&srsName=EPSG:4326`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30000);
+  try {
+    const r = await fetch(url, { signal: ctrl.signal });
+    if (!r.ok) throw new Error(`GeoServer respondeu HTTP ${r.status} (${typeName})`);
+    return await r.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Douglas-Peucker: reduz o número de vértices de um anel de coordenadas mantendo o
+// contorno visualmente fiel na tolerância dada (em graus). As UCs vêm do GeoServer com
+// resolução de agrimensura, muito além do que faz diferença no zoom estadual do mapa.
+function simplifyRing(points, tol) {
+  if (points.length < 3) return points;
+  let maxDist = 0, idx = 0;
+  const [x1, y1] = points[0], [x2, y2] = points[points.length - 1];
+  const dx = x2 - x1, dy = y2 - y1;
+  const norm = dx * dx + dy * dy;
+  for (let i = 1; i < points.length - 1; i++) {
+    const [x, y] = points[i];
+    let dist;
+    if (norm === 0) {
+      dist = Math.hypot(x - x1, y - y1);
+    } else {
+      const t = ((x - x1) * dx + (y - y1) * dy) / norm;
+      const px = x1 + t * dx, py = y1 + t * dy;
+      dist = Math.hypot(x - px, y - py);
+    }
+    if (dist > maxDist) { maxDist = dist; idx = i; }
+  }
+  if (maxDist > tol) {
+    const left = simplifyRing(points.slice(0, idx + 1), tol);
+    const right = simplifyRing(points.slice(idx), tol);
+    return left.slice(0, -1).concat(right);
+  }
+  return [points[0], points[points.length - 1]];
+}
+
+function simplifyGeometry(geom, tol) {
+  if (geom.type === 'Polygon') {
+    return { type: geom.type, coordinates: geom.coordinates.map(ring => simplifyRing(ring, tol)) };
+  }
+  if (geom.type === 'MultiPolygon') {
+    return { type: geom.type, coordinates: geom.coordinates.map(poly => poly.map(ring => simplifyRing(ring, tol))) };
+  }
+  return geom;
 }
 
 app.listen(PORT, () => {

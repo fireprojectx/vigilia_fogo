@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vigília Fogo · MG — Risco de incêndio em vegetação</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0F1620; --surf:#172230; --surf2:#1E2C3C; --border:#2A3B4E;
+  --text:#DCE6EE; --muted:#7C93A6; --ember:#F2A93B;
+  --r-baixo:#3FA66A; --r-mod:#E8C34A; --r-alto:#E8863C; --r-muito:#D9503F; --r-crit:#A01F2E;
+  --display:'Oswald','Arial Narrow',sans-serif; --body:'Inter',system-ui,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--text);font-family:var(--body);-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font-family:inherit;color:inherit;cursor:pointer}
+.app{display:grid;grid-template-rows:auto 1fr;height:100vh;height:100dvh}
+header{background:linear-gradient(180deg,#131D29,#0F1620);border-bottom:1px solid var(--border);
+  padding:10px 16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;z-index:600;position:relative}
+.brand{display:flex;align-items:center;gap:11px;min-width:0}
+.mark{width:34px;height:34px;flex:none;border-radius:6px;position:relative;
+  background:radial-gradient(circle at 50% 120%,#F2A93B,#D9503F 55%,#A01F2E 90%);
+  box-shadow:0 0 0 1px #3a2412,0 0 18px -4px #E8863C}
+.mark::after{content:"";position:absolute;inset:0;border-radius:6px;
+  background:radial-gradient(circle at 50% 130%,rgba(255,220,150,.9),transparent 45%)}
+.brand h1{font-family:var(--display);font-weight:600;font-size:19px;letter-spacing:.06em;margin:0;
+  line-height:1;text-transform:uppercase}
+.brand .sub{font-size:11px;color:var(--muted);letter-spacing:.14em;text-transform:uppercase;margin-top:3px}
+.header-meta{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.pill{display:flex;align-items:center;gap:6px;background:var(--surf);border:1px solid var(--border);
+  border-radius:20px;padding:5px 11px;font-size:11px;font-family:var(--mono)}
+.pill .d{width:7px;height:7px;border-radius:50%;background:var(--muted);flex:none}
+.pill.ok .d{background:var(--r-baixo);box-shadow:0 0 7px var(--r-baixo);animation:blink 2.4s infinite}
+.pill.warn .d{background:var(--ember)}
+.pill.err .d{background:var(--r-muito)}
+.pill.load .d{background:var(--ember);animation:blink .7s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.main{display:grid;grid-template-columns:1fr 372px;min-height:0}
+#map{width:100%;height:100%;background:#0c1218}
+.leaflet-container{background:#0c1218;font-family:var(--body)}
+.panel{background:var(--surf);border-left:1px solid var(--border);overflow-y:auto}
+.panel::-webkit-scrollbar{width:9px}
+.panel::-webkit-scrollbar-thumb{background:var(--border);border-radius:6px}
+.block{padding:15px 16px;border-bottom:1px solid var(--border)}
+.eyebrow{font-family:var(--display);font-size:11px;letter-spacing:.18em;color:var(--muted);
+  text-transform:uppercase;margin:0 0 11px;display:flex;align-items:center;gap:8px}
+.eyebrow .num{color:var(--ember);font-weight:600}
+.src{display:flex;justify-content:space-between;align-items:baseline;font-size:11.5px;padding:5px 0;
+  border-bottom:1px dotted var(--border)}
+.src:last-of-type{border-bottom:0}
+.src .n{color:var(--text);font-weight:500}
+.src .n small{display:block;color:var(--muted);font-weight:400;font-size:10px;margin-top:2px}
+.src .v{font-family:var(--mono);font-size:10.5px;color:var(--muted);text-align:right;flex:none;padding-left:10px}
+.btn{width:100%;background:var(--surf2);border:1px solid var(--border);color:var(--text);border-radius:8px;
+  padding:10px;font-size:12px;font-weight:600;letter-spacing:.03em;display:flex;align-items:center;
+  justify-content:center;gap:8px;transition:.15s;margin-top:11px}
+.btn:hover{border-color:var(--ember);color:var(--ember)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.keyrow{display:flex;gap:7px;margin-top:10px}
+input[type=text]{flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);color:var(--text);
+  border-radius:7px;padding:9px 10px;font-family:var(--mono);font-size:11.5px;outline:none}
+input[type=text]:focus{border-color:var(--ember)}
+input[type=text]::placeholder{color:#4d6274}
+.keyrow button{background:var(--surf2);border:1px solid var(--border);border-radius:7px;padding:0 13px;
+  font-size:11.5px;font-weight:600;white-space:nowrap}
+.keyrow button:hover{border-color:var(--ember);color:var(--ember)}
+.note{font-size:10.5px;color:var(--muted);line-height:1.5;margin:9px 0 0}
+.note a{color:var(--ember)}
+.field{margin-top:13px}
+.field label{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:7px}
+.field label b{color:var(--text);font-family:var(--mono);font-weight:600}
+input[type=range]{width:100%;-webkit-appearance:none;height:4px;border-radius:3px;background:var(--border);outline:none}
+input[type=range]:disabled{opacity:.4}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;
+  background:var(--ember);border:2px solid #0F1620;cursor:pointer;box-shadow:0 0 6px -1px var(--ember)}
+input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--ember);
+  border:2px solid #0F1620;cursor:pointer}
+.toggle{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--muted);cursor:pointer;user-select:none}
+.toggle input{appearance:none;width:34px;height:19px;border-radius:12px;background:var(--bg);
+  border:1px solid var(--border);position:relative;transition:.2s;flex:none;cursor:pointer}
+.toggle input::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;
+  background:var(--muted);transition:.2s}
+.toggle input:checked{background:#3b2a12;border-color:var(--ember)}
+.toggle input:checked::after{left:17px;background:var(--ember)}
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{display:flex;align-items:center;gap:7px;background:var(--bg);border:1px solid var(--border);
+  border-radius:20px;padding:5px 11px 5px 8px;font-size:11.5px;color:var(--text);transition:.15s}
+.chip .dot{width:9px;height:9px;border-radius:50%}
+.chip.off{opacity:.35}
+.chip.off .lbl{text-decoration:line-through}
+.sel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.sel-name{font-family:var(--display);font-size:22px;font-weight:600;line-height:1.05;margin:0}
+.sel-bioma{font-size:11px;letter-spacing:.1em;text-transform:uppercase;margin-top:4px;color:var(--muted)}
+.gauge{flex:none;text-align:center}
+.gauge .val{font-family:var(--display);font-size:34px;font-weight:700;line-height:1}
+.gauge .cls{font-size:10px;letter-spacing:.12em;text-transform:uppercase;margin-top:2px;font-weight:600}
+.gauge .iriv{font-size:9px;color:var(--muted);letter-spacing:.14em;margin-top:3px}
+.comp{margin-top:16px;display:flex;flex-direction:column;gap:13px}
+.comp-row .top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px}
+.comp-row .cname{font-size:12.5px;font-weight:600}
+.comp-row .cname span{color:var(--muted);font-weight:400;font-size:11px}
+.comp-row .cval{font-family:var(--mono);font-size:12px}
+.bar{height:7px;border-radius:4px;background:var(--bg);overflow:hidden}
+.bar>i{display:block;height:100%;border-radius:4px;transition:width .5s cubic-bezier(.2,.7,.2,1)}
+.fma-tag{display:inline-flex;align-items:center;gap:5px;background:var(--bg);border:1px solid var(--border);
+  border-radius:5px;padding:3px 8px;font-size:10px;font-family:var(--mono);margin-top:9px}
+.vars{margin-top:15px;display:grid;grid-template-columns:1fr 1fr;gap:9px 14px}
+.var{font-size:11px;color:var(--muted);display:flex;justify-content:space-between;gap:6px;
+  border-bottom:1px dotted var(--border);padding-bottom:4px}
+.var b{color:var(--text);font-family:var(--mono);font-weight:500;text-align:right}
+.hint{font-size:11px;color:var(--muted);line-height:1.5}
+.rank{list-style:none;margin:0;padding:0}
+.rank li{display:flex;align-items:center;gap:10px;padding:8px 4px;border-radius:6px;cursor:pointer;transition:.12s}
+.rank li:hover{background:var(--surf2)}
+.rank .pos{font-family:var(--mono);font-size:11px;color:var(--muted);width:16px;text-align:right}
+.rank .swatch{width:8px;height:22px;border-radius:2px;flex:none}
+.rank .rn{flex:1;font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rank .rb{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.rank .rv{font-family:var(--display);font-size:17px;font-weight:600}
+.summary{display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.summary .s{flex:1;padding:9px 6px;text-align:center;border-right:1px solid var(--border)}
+.summary .s:last-child{border-right:0}
+.summary .sv{font-family:var(--display);font-size:20px;font-weight:700;line-height:1}
+.summary .sl{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:3px}
+.foot{font-size:10.5px;color:var(--muted);line-height:1.55}
+.foot b{color:#95aab9;font-weight:600}
+.legend{position:absolute;left:12px;bottom:12px;z-index:500;background:rgba(19,29,41,.92);
+  border:1px solid var(--border);border-radius:9px;padding:11px 13px;backdrop-filter:blur(6px);max-width:210px}
+.legend h4{font-family:var(--display);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--muted);margin:0 0 9px}
+.lg-row{display:flex;align-items:center;gap:8px;font-size:11px;margin:5px 0}
+.lg-row .sw{width:22px;height:9px;border-radius:3px;flex:none}
+.overlay{position:absolute;inset:0;z-index:550;background:rgba(15,22,32,.82);backdrop-filter:blur(3px);
+  display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;transition:.3s}
+.overlay.hide{opacity:0;pointer-events:none}
+.spinner{width:34px;height:34px;border:3px solid var(--border);border-top-color:var(--ember);
+  border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.overlay p{font-size:12.5px;color:var(--muted);margin:0;font-family:var(--mono);text-align:center;padding:0 20px}
+.pulse{animation:pulse 1.8s ease-out infinite}
+@keyframes pulse{0%{transform:scale(.8);opacity:.85}70%{transform:scale(2.5);opacity:0}100%{opacity:0}}
+.foco{width:5px;height:5px;border-radius:50%;background:#FF3B1F;box-shadow:0 0 6px 1px #FF3B1F}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media(max-width:940px){
+  body{overflow:auto}
+  .app{grid-template-rows:auto 1fr;height:auto;min-height:100dvh}
+  .main{grid-template-columns:1fr}
+  #map{height:52vh;min-height:330px}
+  .panel{border-left:0;border-top:1px solid var(--border);overflow:visible}
+  .header-meta{width:100%;margin-left:0}
+  .brand h1{font-size:17px}
+}
+@media(max-width:520px){.vars{grid-template-columns:1fr}.brand .sub{display:none}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <div class="mark"></div>
+      <div>
+        <h1>Vigília&nbsp;Fogo · MG</h1>
+        <div class="sub">Risco de incêndio em vegetação · dados ao vivo</div>
+      </div>
+    </div>
+    <div class="header-meta">
+      <div class="pill load" id="p-meteo"><span class="d"></span><span>Open-Meteo</span></div>
+      <div class="pill" id="p-firms"><span class="d"></span><span>FIRMS</span></div>
+      <div class="pill" id="p-time"><span class="d" style="background:var(--ember)"></span><span id="upd">—</span></div>
+    </div>
+  </header>
+
+  <div class="main">
+    <div style="position:relative">
+      <div id="map"></div>
+      <div class="overlay" id="ov">
+        <div class="spinner"></div>
+        <p id="ov-msg">Consultando Open-Meteo…<br>34 municípios · 30 dias de histórico</p>
+      </div>
+      <div class="legend">
+        <h4>Índice IRIV</h4>
+        <div class="lg-row"><span class="sw" style="background:var(--r-crit)"></span>Crítico · 80–100</div>
+        <div class="lg-row"><span class="sw" style="background:var(--r-muito)"></span>Muito alto · 60–80</div>
+        <div class="lg-row"><span class="sw" style="background:var(--r-alto)"></span>Alto · 40–60</div>
+        <div class="lg-row"><span class="sw" style="background:var(--r-mod)"></span>Moderado · 20–40</div>
+        <div class="lg-row"><span class="sw" style="background:var(--r-baixo)"></span>Baixo · 0–20</div>
+        <div class="lg-row" id="lg-foco" style="display:none;margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+          <span class="sw" style="background:#FF3B1F;width:9px;height:9px;border-radius:50%"></span>Foco de calor (VIIRS)</div>
+      </div>
+    </div>
+
+    <aside class="panel">
+      <div class="block">
+        <p class="eyebrow"><span class="num">01</span> Fontes de dados</p>
+        <div class="src"><div class="n">Open-Meteo <small>UR, chuva, vento · ECMWF/GFS</small></div><div class="v" id="v-meteo">carregando…</div></div>
+        <div class="src"><div class="n">NASA FIRMS <small>focos VIIRS · via proxy /api/firms</small></div><div class="v" id="v-firms">aguardando…</div></div>
+        <p class="note">A MAP_KEY fica no servidor (<code>FIRMS_MAP_KEY</code>), nunca no navegador. Sem o proxy no ar, o IRIV usa só clima e espalhamento, com pesos renormalizados para 0,40 / 0,60.</p>
+        <button class="btn" id="btn-refresh">↻ Atualizar dados</button>
+      </div>
+
+      <div class="block">
+        <p class="eyebrow"><span class="num">02</span> Vento</p>
+        <label class="toggle"><input type="checkbox" id="wov"><span>Simular rajada (sobrepõe o vento observado)</span></label>
+        <div class="field">
+          <label>Velocidade <b><span id="windv">—</span> km/h</b></label>
+          <input type="range" id="wind" min="0" max="60" value="15" disabled>
+        </div>
+      </div>
+
+      <div class="block" id="sel-block">
+        <div class="sel-head">
+          <div>
+            <p class="sel-name" id="sel-name">Panorama estadual</p>
+            <div class="sel-bioma" id="sel-bioma">34 municípios · 5 fitofisionomias</div>
+          </div>
+          <div class="gauge">
+            <div class="val" id="sel-val">—</div>
+            <div class="cls" id="sel-cls">&nbsp;</div>
+            <div class="iriv">ÍNDICE IRIV</div>
+          </div>
+        </div>
+        <div class="comp" id="comp"></div>
+        <div id="fma-wrap"></div>
+        <div class="vars" id="vars"></div>
+        <p class="hint" id="sel-hint" style="margin-top:14px">Toque em um município no mapa para ver a decomposição do risco a partir dos dados observados.</p>
+      </div>
+
+      <div class="block">
+        <p class="eyebrow"><span class="num">03</span> Situação do estado</p>
+        <div class="summary" id="summary"></div>
+      </div>
+
+      <div class="block">
+        <p class="eyebrow"><span class="num">04</span> Fitofisionomia</p>
+        <div class="chips" id="chips"></div>
+      </div>
+
+      <div class="block">
+        <p class="eyebrow"><span class="num">05</span> Maiores riscos agora</p>
+        <ul class="rank" id="rank"></ul>
+      </div>
+
+      <div class="block">
+        <button class="btn" id="export" style="margin-top:0">⬇ Exportar tabela (CSV p/ Power BI)</button>
+        <p class="foot" style="margin-top:14px">
+          <b>Método.</b> <b>Risco climático</b> = Fórmula de Monte Alegre (Soares, 1972), acumulada em 30 dias
+          com a UR das 13 h e as regras de abatimento por chuva (≤2,4 mm sem alteração; 2,5–4,9 abate 30%;
+          5,0–9,9 abate 60%; 10,0–12,9 abate 80%; &gt;12,9 zera). <b>Ignição</b> = focos VIIRS em raio de 35 km.
+          <b>Espalhamento</b> = combustibilidade da fitofisionomia × secura × vento × declividade.
+          IRIV = 0,30·Clima + 0,25·Ignição + 0,45·Espalhamento.
+        </p>
+        <p class="foot" style="margin-top:9px">
+          <b>Limites.</b> Clima e vento vêm de modelo global reanalisado, não de estação de superfície —
+          para uso operacional, calibre contra o INMET e a base BISP. A declividade e a combustibilidade
+          por fitofisionomia são parâmetros fixos, não medidos por pixel.
+        </p>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const MG_OUTLINE = {"type": "Feature", "properties": {"name": "Minas Gerais"}, "geometry": {"type": "Polygon", "coordinates": [[[-46.407, -22.539], [-46.542, -22.494], [-46.554, -22.446], [-46.666, -22.413], [-46.66, -22.366], [-46.723, -22.306], [-46.674, -22.176], [-46.598, -22.136], [-46.723, -22.076], [-46.664, -22.068], [-46.68, -22.026], [-46.612, -22.004], [-46.667, -21.932], [-46.647, -21.88], [-46.69, -21.837], [-46.626, -21.766], [-46.621, -21.675], [-46.565, -21.679], [-46.518, -21.612], [-46.509, -21.469], [-46.576, -21.426], [-46.615, -21.441], [-46.666, -21.361], [-46.706, -21.404], [-46.764, -21.36], [-46.83, -21.366], [-46.92, -21.427], [-47.011, -21.422], [-46.998, -21.349], [-47.077, -21.24], [-47.061, -21.21], [-47.118, -21.185], [-47.143, -20.982], [-47.24, -20.885], [-47.186, -20.731], [-47.165, -20.701], [-47.115, -20.707], [-47.096, -20.644], [-47.154, -20.519], [-47.292, -20.447], [-47.298, -20.348], [-47.231, -20.219], [-47.257, -20.166], [-47.44, -20.048], [-47.425, -20.013], [-47.468, -19.961], [-47.58, -19.995], [-47.634, -20.049], [-47.704, -19.979], [-47.852, -19.989], [-47.899, -20.125], [-47.976, -20.035], [-48.019, -20.12], [-48.113, -20.143], [-48.24, -20.029], [-48.253, -20.077], [-48.217, -20.125], [-48.241, -20.14], [-48.405, -20.113], [-48.646, -20.167], [-48.825, -20.161], [-48.885, -20.266], [-48.867, -20.398], [-48.899, -20.441], [-48.968, -20.393], [-48.972, -20.207], [-49.014, -20.154], [-49.067, -20.154], [-49.172, -20.312], [-49.228, -20.303], [-49.308, -20.103], [-49.296, -20.015], [-49.248, -19.999], [-49.265, -19.962], [-49.444, -19.98], [-49.551, -19.905], [-49.855, -19.946], [-50.012, -19.926], [-50.103, -19.874], [-50.352, -19.864], [-50.471, -19.779], [-50.574, -19.814], [-50.658, -19.907], [-50.908, -19.994], [-51.0, -20.085], [-51.02, -19.959], [-50.999, -19.906], [-51.045, -19.729], [-50.987, -19.589], [-50.923, -19.576], [-50.963, -19.483], [-50.826, -19.487], [-50.875, -19.419], [-50.814, -19.285], [-50.745, -19.233], [-50.733, -19.185], [-50.677, -19.172], [-50.674, -19.136], [-50.585, -19.137], [-50.543, -19.105], [-50.498, -19.034], [-50.508, -18.935], [-50.441, -18.89], [-50.306, -18.695], [-50.08, -18.672], [-50.013, -18.599], [-49.783, -18.641], [-49.768, -18.611], [-49.642, -18.601], [-49.653, -18.563], [-49.559, -18.546], [-49.533, -18.492], [-49.497, -18.492], [-49.481, -18.561], [-49.391, -18.646], [-49.324, -18.56], [-49.248, -18.522], [-49.192, -18.449], [-49.205, -18.411], [-49.126, -18.382], [-49.077, -18.416], [-48.936, -18.306], [-48.832, -18.346], [-48.816, -18.379], [-48.755, -18.344], [-48.561, -18.323], [-48.479, -18.38], [-48.405, -18.356], [-48.313, -18.384], [-48.262, -18.331], [-48.161, -18.372], [-48.117, -18.425], [-47.98, -18.442], [-47.954, -18.5], [-47.863, -18.469], [-47.86, -18.44], [-47.834, -18.451], [-47.81, -18.4], [-47.749, -18.412], [-47.74, -18.363], [-47.704, -18.38], [-47.657, -18.327], [-47.626, -18.334], [-47.638, -18.287], [-47.567, -18.203], [-47.536, -18.194], [-47.533, -18.23], [-47.357, -18.085], [-47.283, -18.058], [-47.373, -17.831], [-47.313, -17.699], [-47.27, -17.675], [-47.265, -17.61], [-47.333, -17.523], [-47.497, -17.524], [-47.541, -17.454], [-47.538, -17.388], [-47.511, -17.325], [-47.441, -17.348], [-47.434, -17.276], [-47.362, -17.222], [-47.352, -17.166], [-47.182, -17.063], [-47.125, -16.981], [-47.197, -16.91], [-47.193, -16.825], [-47.25, -16.666], [-47.318, -16.603], [-47.412, -16.575], [-47.46, -16.505], [-47.427, -16.394], [-47.328, -16.249], [-47.352, -16.132], [-47.3, -16.017], [-47.219, -16.014], [-47.142, -15.926], [-47.089, -15.961], [-46.806, -15.872], [-46.854, -15.618], [-46.948, -15.557], [-46.929, -15.439], [-46.835, -15.326], [-46.889, -15.282], [-46.891, -15.235], [-46.927, -15.255], [-46.94, -15.23], [-46.889, -15.111], [-46.918, -15.049], [-46.829, -15.009], [-46.641, -15.087], [-46.513, -15.061], [-46.546, -14.925], [-46.521, -14.851], [-46.565, -14.786], [-46.476, -14.705], [-46.322, -14.814], [-46.3, -14.858], [-46.319, -14.9], [-46.286, -14.928], [-46.175, -14.949], [-46.161, -14.906], [-46.098, -14.939], [-46.037, -14.874], [-46.003, -14.902], [-45.966, -14.965], [-45.975, -15.038], [-46.054, -15.172], [-46.119, -15.192], [-46.058, -15.262], [-45.953, -15.139], [-45.873, -15.158], [-45.826, -15.117], [-45.721, -15.112], [-45.567, -14.945], [-45.455, -14.953], [-45.205, -14.744], [-45.082, -14.748], [-45.04, -14.68], [-44.843, -14.58], [-44.833, -14.499], [-44.701, -14.449], [-44.565, -14.34], [-44.316, -14.24], [-44.247, -14.26], [-44.215, -14.233], [-44.135, -14.282], [-44.112, -14.258], [-44.034, -14.289], [-43.997, -14.265], [-43.783, -14.339], [-43.874, -14.524], [-43.883, -14.653], [-43.723, -14.699], [-43.719, -14.729], [-43.58, -14.75], [-43.531, -14.815], [-43.469, -14.787], [-43.434, -14.723], [-43.176, -14.65], [-43.083, -14.698], [-42.938, -14.708], [-42.927, -14.744], [-42.723, -14.885], [-42.436, -15.022], [-42.443, -15.061], [-42.355, -15.098], [-42.331, -15.08], [-42.264, -15.125], [-42.173, -15.085], [-42.091, -15.186], [-41.997, -15.158], [-41.932, -15.174], [-41.87, -15.115], [-41.8, -15.101], [-41.358, -15.498], [-41.331, -15.744], [-41.215, -15.737], [-41.144, -15.771], [-41.077, -15.719], [-41.004, -15.711], [-40.963, -15.648], [-40.881, -15.694], [-40.816, -15.647], [-40.767, -15.714], [-40.707, -15.666], [-40.563, -15.802], [-40.461, -15.753], [-40.376, -15.823], [-40.231, -15.803], [-40.166, -15.868], [-40.17, -15.907], [-40.085, -15.897], [-40.066, -15.96], [-40.004, -16.001], [-39.915, -16.0], [-39.935, -16.023], [-39.856, -16.113], [-39.936, -16.245], [-39.916, -16.283], [-39.966, -16.327], [-39.991, -16.313], [-40.065, -16.457], [-40.099, -16.423], [-40.171, -16.524], [-40.159, -16.58], [-40.235, -16.558], [-40.287, -16.597], [-40.345, -16.787], [-40.269, -16.795], [-40.252, -16.86], [-40.327, -16.909], [-40.366, -16.874], [-40.417, -16.899], [-40.48, -16.876], [-40.57, -17.062], [-40.571, -17.252], [-40.547, -17.283], [-40.609, -17.326], [-40.598, -17.389], [-40.623, -17.406], [-40.519, -17.446], [-40.46, -17.568], [-40.412, -17.567], [-40.414, -17.61], [-40.354, -17.644], [-40.347, -17.613], [-40.28, -17.722], [-40.224, -17.734], [-40.174, -17.851], [-40.263, -17.922], [-40.222, -17.98], [-40.527, -17.891], [-40.703, -18.023], [-40.771, -18.003], [-40.809, -17.952], [-40.863, -17.988], [-40.882, -17.97], [-40.902, -17.987], [-40.773, -18.107], [-40.771, -18.155], [-40.845, -18.149], [-40.893, -18.107], [-40.988, -18.169], [-41.056, -18.166], [-41.158, -18.308], [-41.144, -18.405], [-41.182, -18.439], [-41.02, -18.459], [-41.053, -18.628], [-40.941, -18.689], [-40.916, -18.815], [-41.097, -18.842], [-41.134, -18.796], [-41.232, -18.797], [-41.243, -18.854], [-41.214, -18.877], [-41.166, -18.858], [-41.061, -18.967], [-41.018, -18.973], [-41.071, -19.023], [-40.926, -19.188], [-40.92, -19.271], [-40.944, -19.279], [-40.908, -19.306], [-40.968, -19.425], [-40.944, -19.46], [-40.971, -19.503], [-41.045, -19.487], [-41.036, -19.568], [-41.168, -19.672], [-41.184, -19.888], [-41.308, -19.948], [-41.382, -20.188], [-41.756, -20.206], [-41.782, -20.294], [-41.848, -20.33], [-41.859, -20.373], [-41.798, -20.435], [-41.805, -20.544], [-41.856, -20.617], [-41.808, -20.644], [-41.878, -20.778], [-41.928, -20.795], [-41.976, -20.935], [-42.094, -20.936], [-42.151, -20.974], [-42.08, -21.036], [-42.208, -21.178], [-42.189, -21.249], [-42.229, -21.285], [-42.239, -21.403], [-42.274, -21.403], [-42.292, -21.46], [-42.253, -21.493], [-42.369, -21.619], [-42.343, -21.659], [-42.275, -21.676], [-42.267, -21.714], [-42.882, -21.96], [-43.136, -22.109], [-43.131, -22.029], [-43.202, -22.037], [-43.246, -22.007], [-43.349, -22.003], [-43.462, -22.072], [-43.513, -22.059], [-43.563, -22.088], [-43.586, -22.052], [-43.613, -22.082], [-43.691, -22.07], [-43.734, -22.097], [-43.766, -22.062], [-44.1, -22.173], [-44.235, -22.266], [-44.263, -22.243], [-44.387, -22.272], [-44.456, -22.257], [-44.532, -22.328], [-44.612, -22.328], [-44.66, -22.38], [-44.724, -22.359], [-44.897, -22.452], [-45.091, -22.483], [-45.275, -22.616], [-45.4, -22.653], [-45.473, -22.588], [-45.539, -22.652], [-45.584, -22.651], [-45.555, -22.626], [-45.576, -22.601], [-45.664, -22.65], [-45.659, -22.58], [-45.716, -22.577], [-45.737, -22.608], [-45.694, -22.651], [-45.819, -22.722], [-45.728, -22.723], [-45.713, -22.814], [-45.754, -22.792], [-45.781, -22.855], [-45.841, -22.833], [-45.879, -22.875], [-45.912, -22.816], [-46.008, -22.889], [-46.139, -22.922], [-46.144, -22.858], [-46.356, -22.9], [-46.384, -22.869], [-46.334, -22.76], [-46.478, -22.699], [-46.469, -22.673], [-46.393, -22.662], [-46.433, -22.573], [-46.407, -22.539]]]}};
+const MUNIS = [{"nome": "Paracatu", "bioma": "cerrado", "lat": -17.1737, "lng": -46.8838}, {"nome": "Unaí", "bioma": "cerrado", "lat": -16.3756, "lng": -46.8192}, {"nome": "João Pinheiro", "bioma": "cerrado", "lat": -17.605, "lng": -45.9343}, {"nome": "Montes Claros", "bioma": "cerrado", "lat": -16.6204, "lng": -43.9304}, {"nome": "Pirapora", "bioma": "cerrado", "lat": -17.3991, "lng": -44.8672}, {"nome": "Curvelo", "bioma": "cerrado", "lat": -18.8202, "lng": -44.448}, {"nome": "Patos de Minas", "bioma": "cerrado", "lat": -18.5972, "lng": -46.5081}, {"nome": "Bocaiúva", "bioma": "cerrado", "lat": -17.2877, "lng": -43.6873}, {"nome": "Sete Lagoas", "bioma": "cerrado", "lat": -19.4368, "lng": -44.2537}, {"nome": "Buritizeiro", "bioma": "cerrado", "lat": -17.2863, "lng": -45.1921}, {"nome": "Janaúba", "bioma": "caatinga", "lat": -15.7991, "lng": -43.3966}, {"nome": "Espinosa", "bioma": "caatinga", "lat": -14.8588, "lng": -42.9659}, {"nome": "Monte Azul", "bioma": "caatinga", "lat": -15.2071, "lng": -42.9683}, {"nome": "Jaíba", "bioma": "caatinga", "lat": -15.2343, "lng": -43.6756}, {"nome": "Porteirinha", "bioma": "caatinga", "lat": -15.7111, "lng": -43.0796}, {"nome": "Mato Verde", "bioma": "caatinga", "lat": -15.4251, "lng": -42.8638}, {"nome": "Diamantina", "bioma": "campo_rupestre", "lat": -17.9933, "lng": -43.6101}, {"nome": "Santana do Riacho", "bioma": "campo_rupestre", "lat": -19.1887, "lng": -43.6452}, {"nome": "Grão Mogol", "bioma": "campo_rupestre", "lat": -16.4636, "lng": -42.9934}, {"nome": "São Roque de Minas", "bioma": "campo_rupestre", "lat": -20.1871, "lng": -46.5132}, {"nome": "Ouro Preto", "bioma": "campo_rupestre", "lat": -20.3909, "lng": -43.6104}, {"nome": "Catas Altas", "bioma": "campo_rupestre", "lat": -20.0751, "lng": -43.4081}, {"nome": "Juiz de Fora", "bioma": "mata_atlantica", "lat": -21.7455, "lng": -43.4649}, {"nome": "Viçosa", "bioma": "mata_atlantica", "lat": -20.7399, "lng": -42.8859}, {"nome": "Governador Valadares", "bioma": "mata_atlantica", "lat": -18.7831, "lng": -41.9634}, {"nome": "Teófilo Otoni", "bioma": "mata_atlantica", "lat": -17.7148, "lng": -41.383}, {"nome": "Ipatinga", "bioma": "mata_atlantica", "lat": -19.4386, "lng": -42.6001}, {"nome": "Poços de Caldas", "bioma": "mata_atlantica", "lat": -21.8077, "lng": -46.5631}, {"nome": "Muriaé", "bioma": "mata_atlantica", "lat": -21.091, "lng": -42.4217}, {"nome": "Belo Horizonte", "bioma": "transicao", "lat": -19.9023, "lng": -43.9599}, {"nome": "Uberlândia", "bioma": "transicao", "lat": -19.0279, "lng": -48.3313}, {"nome": "Uberaba", "bioma": "transicao", "lat": -19.5805, "lng": -47.9764}, {"nome": "Januária", "bioma": "transicao", "lat": -15.32, "lng": -44.8484}, {"nome": "São João del-Rei", "bioma": "mata_atlantica", "lat": -21.2629, "lng": -44.2762}];
+
+const BIOMA = {
+  cerrado:       {label:'Cerrado',        flam:0.90, decliv:6,  color:'#C7A24B'},
+  campo_rupestre:{label:'Campo Rupestre', flam:0.95, decliv:25, color:'#B57A45'},
+  caatinga:      {label:'Caatinga',       flam:0.70, decliv:8,  color:'#C97C54'},
+  mata_atlantica:{label:'Mata Atlântica', flam:0.45, decliv:15, color:'#57935F'},
+  transicao:     {label:'Transição',      flam:0.75, decliv:10, color:'#94A45C'},
+};
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+
+const state={data:null, focos:null, windOverride:false, wind:15,
+             filter:new Set(Object.keys(BIOMA)), selected:null, loading:false};
+
+/* ---------- Fórmula de Monte Alegre (Soares, 1972) ---------- */
+function calcFMA(rh13, precip){
+  let acc=0;
+  for(let i=0;i<rh13.length;i++){
+    const p=precip[i]??0, h=clamp(rh13[i]??50,1,100);
+    if(p<=2.4)       acc = acc + 100/h;
+    else if(p<=4.9)  acc = 0.70*acc + 100/h;
+    else if(p<=9.9)  acc = 0.40*acc + 100/h;
+    else if(p<=12.9) acc = 0.20*acc + 100/h;
+    else             acc = 0;
+  }
+  return acc;
+}
+function grauFMA(f){
+  if(f<=1.0)  return {k:'Nulo',      hex:'#3FA66A'};
+  if(f<=3.0)  return {k:'Pequeno',   hex:'#7FB556'};
+  if(f<=8.0)  return {k:'Médio',     hex:'#E8C34A'};
+  if(f<=20.0) return {k:'Alto',      hex:'#E8863C'};
+  return       {k:'Muito Alto', hex:'#D9503F'};
+}
+// ancora as classes oficiais da FMA na escala 0–100
+function escalaFMA(f){
+  const pts=[[0,0],[1,20],[3,40],[8,60],[20,80],[40,100]];
+  if(f>=40) return 100;
+  for(let i=0;i<pts.length-1;i++){
+    const [a,va]=pts[i],[b,vb]=pts[i+1];
+    if(f<=b) return va+(f-a)/(b-a)*(vb-va);
+  }
+  return 100;
+}
+function classify(v){
+  if(v>=80)return{k:'Crítico',hex:'#A01F2E'};
+  if(v>=60)return{k:'Muito alto',hex:'#D9503F'};
+  if(v>=40)return{k:'Alto',hex:'#E8863C'};
+  if(v>=20)return{k:'Moderado',hex:'#E8C34A'};
+  return{k:'Baixo',hex:'#3FA66A'};
+}
+const haversine=(a,b,c,d)=>{const R=6371,t=x=>x*Math.PI/180;
+  const dLat=t(c-a),dLon=t(d-b);
+  const x=Math.sin(dLat/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(x));};
+
+/* ---------- Núcleo do modelo ---------- */
+function compute(m){
+  const w=state.data&&state.data[m.nome];
+  if(!w) return null;
+  const b=BIOMA[m.bioma];
+  const fma=calcFMA(w.rh13, w.precip);
+  const clima=escalaFMA(fma);
+
+  const wind = state.windOverride ? state.wind : w.wind;
+  const rh   = w.rhNow;
+  const dryness=clamp(1-rh/100,0,1);
+  const windCoef=clamp(0.6+0.04*wind,0.6,1.6);
+  const slopeCoef=1+b.decliv/100;
+  const espal=clamp(b.flam*Math.pow(dryness,1.2)*windCoef*slopeCoef*120,0,100);
+
+  let ign=null, nFocos=null;
+  if(state.focos){
+    nFocos=state.focos.filter(f=>haversine(m.lat,m.lng,f.lat,f.lng)<=35).length;
+    ign=clamp(100*(1-Math.exp(-nFocos/8)),0,100);
+  }
+  const iriv = ign===null
+    ? clamp(0.40*clima+0.60*espal,0,100)
+    : clamp(0.30*clima+0.25*ign+0.45*espal,0,100);
+
+  return {fma,clima,espal,ign,iriv,nFocos,wind,rh,
+          rh13:w.rh13[w.rh13.length-1], dias:w.diasSemChuva, chuva30:w.chuva30, temp:w.temp};
+}
+
+/* ---------- Open-Meteo ---------- */
+async function loadMeteo(){
+  state.loading=true;
+  setPill('p-meteo','load'); document.getElementById('v-meteo').textContent='carregando…';
+  showOverlay('Consultando Open-Meteo…<br>34 municípios · 30 dias de histórico');
+  const lats=MUNIS.map(m=>m.lat).join(','), lngs=MUNIS.map(m=>m.lng).join(',');
+  const url='https://api.open-meteo.com/v1/forecast'
+    +'?latitude='+lats+'&longitude='+lngs
+    +'&current=relative_humidity_2m,temperature_2m,wind_speed_10m,wind_direction_10m'
+    +'&hourly=relative_humidity_2m'
+    +'&daily=precipitation_sum'
+    +'&past_days=30&forecast_days=1&timezone=America%2FSao_Paulo';
+  try{
+    const r=await fetch(url);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    let j=await r.json();
+    if(!Array.isArray(j)) j=[j];
+    if(j.length!==MUNIS.length) throw new Error('retorno com '+j.length+' locais');
+    const out={};
+    j.forEach((loc,i)=>{
+      const m=MUNIS[i];
+      // UR das 13h de cada dia
+      const ht=loc.hourly.time, hv=loc.hourly.relative_humidity_2m;
+      const byDay={};
+      for(let k=0;k<ht.length;k++){
+        if(ht[k].slice(11,13)==='13') byDay[ht[k].slice(0,10)]=hv[k];
+      }
+      const days=loc.daily.time, prec=loc.daily.precipitation_sum;
+      const rh13=[], precip=[];
+      days.forEach((d,k)=>{ if(byDay[d]!=null){ rh13.push(byDay[d]); precip.push(prec[k]??0); } });
+      // dias sem chuva significativa (<=2,4 mm), contados do fim para trás
+      let dias=0;
+      for(let k=precip.length-1;k>=0;k--){ if((precip[k]??0)<=2.4) dias++; else break; }
+      out[m.nome]={
+        rh13, precip, diasSemChuva:dias,
+        chuva30:precip.reduce((a,b)=>a+(b||0),0),
+        rhNow:loc.current.relative_humidity_2m,
+        temp:loc.current.temperature_2m,
+        wind:loc.current.wind_speed_10m,
+        windDir:loc.current.wind_direction_10m,
+        obsTime:loc.current.time
+      };
+    });
+    state.data=out;
+    setPill('p-meteo','ok');
+    const any=out[MUNIS[0].nome];
+    document.getElementById('v-meteo').textContent=(any.obsTime||'').replace('T',' ')+' · OK';
+    document.getElementById('upd').textContent=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+    hideOverlay();
+  }catch(e){
+    setPill('p-meteo','err');
+    document.getElementById('v-meteo').textContent='falhou';
+    showOverlay('Não foi possível carregar o Open-Meteo.<br>'+e.message+'<br><br>Toque em “Atualizar dados”.');
+  }
+  state.loading=false;
+  if(!state.windOverride){
+    const ws=Object.values(state.data||{}).map(d=>d.wind);
+    if(ws.length) document.getElementById('windv').textContent=(ws.reduce((a,b)=>a+b,0)/ws.length).toFixed(0)+' méd.';
+  }
+  draw();
+}
+
+/* ---------- NASA FIRMS ---------- */
+async function loadFocos(){
+  setPill('p-firms','load'); document.getElementById('v-firms').textContent='carregando…';
+  try{
+    const r=await fetch('/api/firms');
+    const j=await r.json().catch(()=>null);
+    if(!r.ok) throw new Error((j&&j.error)||('HTTP '+r.status));
+    if(!j||!Array.isArray(j.focos)) throw new Error('resposta inesperada');
+    state.focos=j.focos;
+    setPill('p-firms', j.stale?'warn':'ok');
+    const idade=j.cached?(' · cache '+Math.round(j.age_s/60)+' min'):'';
+    document.getElementById('v-firms').textContent=j.focos.length+' focos · 24 h'+idade+(j.stale?' · desatualizado':'');
+    document.getElementById('lg-foco').style.display='flex';
+  }catch(e){
+    state.focos=null;
+    setPill('p-firms','err');
+    const semProxy=/Failed to fetch|NetworkError|Load failed|Unexpected token/i.test(e.message);
+    document.getElementById('v-firms').textContent=semProxy?'proxy fora do ar':e.message;
+    document.getElementById('lg-foco').style.display='none';
+  }
+  draw();
+}
+
+/* ---------- Mapa ---------- */
+const map=L.map('map',{zoomControl:true,attributionControl:false}).setView([-18.5,-44.4],6);
+L.control.attribution({position:'bottomright',prefix:false})
+ .addAttribution('Open-Meteo · NASA FIRMS · IBGE · © CARTO/OSM').addTo(map);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{maxZoom:12,minZoom:5}).addTo(map);
+L.geoJSON(MG_OUTLINE,{style:{color:'#3E5872',weight:1.4,fill:true,fillColor:'#111c27',fillOpacity:.55}}).addTo(map);
+const focoLayer=L.layerGroup().addTo(map);
+const layer=L.layerGroup().addTo(map);
+let markers={};
+
+function draw(){
+  layer.clearLayers(); focoLayer.clearLayers(); markers={};
+  if(state.focos){
+    state.focos.forEach(f=>{
+      L.marker([f.lat,f.lng],{icon:L.divIcon({className:'',html:'<div class="foco"></div>',iconSize:[5,5]}),
+        interactive:false}).addTo(focoLayer);
+    });
+  }
+  MUNIS.forEach(m=>{
+    if(!state.filter.has(m.bioma))return;
+    const r=compute(m); if(!r)return;
+    const cl=classify(r.iriv), rad=6+r.iriv/7;
+    const cm=L.circleMarker([m.lat,m.lng],{radius:rad,color:'#0F1620',weight:1.2,
+      fillColor:cl.hex,fillOpacity:.92}).addTo(layer);
+    cm.on('click',()=>select(m.nome));
+    cm.bindTooltip(m.nome+' · '+Math.round(r.iriv),{direction:'top',offset:[0,-2]});
+    if(r.iriv>=60){
+      L.marker([m.lat,m.lng],{interactive:false,icon:L.divIcon({className:'',iconSize:[0,0],
+        html:'<div class="pulse" style="width:'+(rad*2)+'px;height:'+(rad*2)+'px;border-radius:50%;background:'+cl.hex+';opacity:.5;margin:-'+rad+'px 0 0 -'+rad+'px"></div>'})}).addTo(layer);
+    }
+    markers[m.nome]=cm;
+  });
+  refreshPanel();
+}
+
+/* ---------- Painel ---------- */
+function compRow(name,sub,val,dim){
+  if(val===null) return `<div class="comp-row"><div class="top"><div class="cname">${name} <span>${sub}</span></div>
+    <div class="cval" style="color:var(--muted)">indisponível</div></div>
+    <div class="bar"><i style="width:0"></i></div></div>`;
+  const cl=classify(val);
+  return `<div class="comp-row"><div class="top"><div class="cname">${name} <span>${sub}</span></div>
+    <div class="cval">${Math.round(val)}</div></div>
+    <div class="bar"><i style="width:${val}%;background:${cl.hex}"></i></div></div>`;
+}
+
+function refreshPanel(){
+  const rows=MUNIS.filter(m=>state.filter.has(m.bioma)).map(m=>({m,r:compute(m)}))
+    .filter(o=>o.r).sort((a,b)=>b.r.iriv-a.r.iriv);
+  const rk=document.getElementById('rank'); rk.innerHTML='';
+  if(!rows.length){rk.innerHTML='<li style="color:var(--muted);font-size:12px">Sem dados carregados.</li>';}
+  rows.slice(0,7).forEach((o,i)=>{
+    const cl=classify(o.r.iriv);
+    const li=document.createElement('li');
+    li.innerHTML=`<span class="pos">${i+1}</span><span class="swatch" style="background:${cl.hex}"></span>
+      <span class="rn">${o.m.nome}<br><span class="rb">${BIOMA[o.m.bioma].label} · ${cl.k}</span></span>
+      <span class="rv" style="color:${cl.hex}">${Math.round(o.r.iriv)}</span>`;
+    li.onclick=()=>{select(o.m.nome);map.flyTo([o.m.lat,o.m.lng],7,{duration:.6});};
+    rk.appendChild(li);
+  });
+
+  const all=rows.map(o=>o.r.iriv);
+  const avg=all.length?all.reduce((a,b)=>a+b,0)/all.length:0;
+  document.getElementById('summary').innerHTML=
+    `<div class="s"><div class="sv" style="color:${classify(avg).hex}">${all.length?Math.round(avg):'—'}</div><div class="sl">IRIV médio</div></div>
+     <div class="s"><div class="sv" style="color:var(--r-crit)">${all.filter(v=>v>=80).length}</div><div class="sl">Crítico</div></div>
+     <div class="s"><div class="sv" style="color:var(--r-muito)">${all.filter(v=>v>=60&&v<80).length}</div><div class="sl">Muito alto</div></div>
+     <div class="s"><div class="sv" style="color:var(--r-alto)">${all.filter(v=>v>=40&&v<60).length}</div><div class="sl">Alto</div></div>`;
+
+  if(state.selected){
+    const m=MUNIS.find(x=>x.nome===state.selected);
+    if(m&&state.filter.has(m.bioma)&&compute(m)){renderSelected(m);return;}
+  }
+  renderState(rows,avg);
+}
+
+function renderState(rows,avg){
+  const cl=classify(avg);
+  document.getElementById('sel-name').textContent='Panorama estadual';
+  document.getElementById('sel-bioma').textContent=rows.length+' municípios · dados observados';
+  document.getElementById('sel-val').textContent=rows.length?Math.round(avg):'—';
+  document.getElementById('sel-val').style.color=cl.hex;
+  document.getElementById('sel-cls').textContent=rows.length?('IRIV '+cl.k.toUpperCase()):'';
+  document.getElementById('sel-cls').style.color=cl.hex;
+  const avgOf=k=>{const v=rows.map(o=>o.r[k]).filter(x=>x!==null);
+    return v.length?v.reduce((a,b)=>a+b,0)/v.length:null;};
+  document.getElementById('comp').innerHTML=
+    compRow('Risco climático','Monte Alegre',avgOf('clima'))+
+    compRow('Ignição','focos VIIRS',state.focos?avgOf('ign'):null)+
+    compRow('Espalhamento','comportamento do fogo',avgOf('espal'));
+  document.getElementById('fma-wrap').innerHTML='';
+  document.getElementById('vars').innerHTML='';
+  document.getElementById('sel-hint').style.display='block';
+}
+
+function renderSelected(m){
+  const r=compute(m), cl=classify(r.iriv), b=BIOMA[m.bioma], g=grauFMA(r.fma);
+  document.getElementById('sel-name').textContent=m.nome;
+  document.getElementById('sel-bioma').textContent=b.label;
+  document.getElementById('sel-val').textContent=Math.round(r.iriv);
+  document.getElementById('sel-val').style.color=cl.hex;
+  document.getElementById('sel-cls').textContent='IRIV '+cl.k.toUpperCase();
+  document.getElementById('sel-cls').style.color=cl.hex;
+  document.getElementById('comp').innerHTML=
+    compRow('Risco climático','Monte Alegre',r.clima)+
+    compRow('Ignição','focos VIIRS 35 km',r.ign)+
+    compRow('Espalhamento','comportamento do fogo',r.espal);
+  document.getElementById('fma-wrap').innerHTML=
+    `<span class="fma-tag">FMA acumulada <b style="color:${g.hex};margin-left:2px">${r.fma.toFixed(1)}</b>
+     <span style="color:var(--muted)">· grau ${g.k}</span></span>`;
+  document.getElementById('vars').innerHTML=
+    `<div class="var">UR agora <b>${Math.round(r.rh)}%</b></div>
+     <div class="var">UR às 13 h <b>${Math.round(r.rh13)}%</b></div>
+     <div class="var">Temperatura <b>${r.temp?.toFixed(1)} °C</b></div>
+     <div class="var">Dias sem chuva <b>${r.dias}</b></div>
+     <div class="var">Chuva 30 d <b>${r.chuva30.toFixed(1)} mm</b></div>
+     <div class="var">Vento <b>${r.wind.toFixed(0)} km/h${state.windOverride?' *':''}</b></div>
+     <div class="var">Focos 35 km <b>${r.nFocos===null?'—':r.nFocos}</b></div>
+     <div class="var">Declividade <b>${b.decliv}%</b></div>`;
+  document.getElementById('sel-hint').style.display='none';
+}
+
+function select(nome){
+  state.selected=nome;
+  Object.values(markers).forEach(cm=>cm.setStyle({weight:1.2,color:'#0F1620'}));
+  if(markers[nome])markers[nome].setStyle({weight:2.4,color:'#fff'});
+  refreshPanel();
+  if(window.innerWidth<=940)document.querySelector('.panel').scrollIntoView({behavior:'smooth'});
+}
+
+/* ---------- UI ---------- */
+function setPill(id,cls){document.getElementById(id).className='pill'+(cls?' '+cls:'');}
+function showOverlay(msg){const o=document.getElementById('ov');
+  document.getElementById('ov-msg').innerHTML=msg;o.classList.remove('hide');}
+function hideOverlay(){document.getElementById('ov').classList.add('hide');}
+
+const wov=document.getElementById('wov'), wind=document.getElementById('wind');
+wov.onchange=()=>{
+  state.windOverride=wov.checked; wind.disabled=!wov.checked;
+  if(wov.checked){state.wind=+wind.value;document.getElementById('windv').textContent=wind.value;}
+  else{const ws=Object.values(state.data||{}).map(d=>d.wind);
+    document.getElementById('windv').textContent=ws.length?(ws.reduce((a,b)=>a+b,0)/ws.length).toFixed(0)+' méd.':'—';}
+  draw();
+};
+wind.oninput=()=>{state.wind=+wind.value;document.getElementById('windv').textContent=wind.value;draw();};
+
+document.getElementById('btn-refresh').onclick=async()=>{
+  const b=document.getElementById('btn-refresh'); b.disabled=true;
+  await loadMeteo(); await loadFocos(); b.disabled=false;
+};
+
+const chips=document.getElementById('chips');
+Object.entries(BIOMA).forEach(([k,b])=>{
+  const c=document.createElement('button');
+  c.className='chip';
+  c.innerHTML=`<span class="dot" style="background:${b.color}"></span><span class="lbl">${b.label}</span>`;
+  c.onclick=()=>{
+    if(state.filter.has(k)){state.filter.delete(k);c.classList.add('off');}
+    else{state.filter.add(k);c.classList.remove('off');}
+    draw();
+  };
+  chips.appendChild(c);
+});
+
+document.getElementById('export').onclick=()=>{
+  if(!state.data){alert('Carregue os dados primeiro.');return;}
+  const ts=new Date().toISOString();
+  let csv='data_hora;municipio;bioma;ur_agora_pct;ur_13h_pct;temperatura_c;dias_sem_chuva;chuva_30d_mm;'
+        +'vento_kmh;fma;fma_grau;focos_35km;risco_climatico;ignicao;espalhamento;IRIV;classe;fonte_focos\n';
+  MUNIS.forEach(m=>{
+    const r=compute(m); if(!r)return;
+    csv+=[ts,m.nome,BIOMA[m.bioma].label,Math.round(r.rh),Math.round(r.rh13),r.temp?.toFixed(1),
+      r.dias,r.chuva30.toFixed(1),r.wind.toFixed(0),r.fma.toFixed(2),grauFMA(r.fma).k,
+      r.nFocos===null?'':r.nFocos,Math.round(r.clima),r.ign===null?'':Math.round(r.ign),
+      Math.round(r.espal),Math.round(r.iriv),classify(r.iriv).k,
+      state.focos?'VIIRS_SNPP_NRT':'indisponivel'].join(';')+'\n';
+  });
+  const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='iriv_mg_'+ts.slice(0,10)+'.csv';a.click();
+};
+
+loadMeteo().then(loadFocos);
+</script>
+</body>
+</html>

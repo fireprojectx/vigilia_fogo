@@ -204,7 +204,9 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
         <p class="eyebrow"><span class="num">01</span> Fontes de dados</p>
         <div class="src"><div class="n">Open-Meteo <small>UR, chuva, vento · ECMWF/GFS</small></div><div class="v" id="v-meteo">carregando…</div></div>
         <div class="src"><div class="n">NASA FIRMS <small>focos VIIRS · via proxy /api/firms</small></div><div class="v" id="v-firms">aguardando…</div></div>
-        <div class="src"><div class="n">INPE <small>focos multi-satélite · via proxy /api/inpe</small></div><div class="v" id="v-inpe">aguardando…</div></div>
+        <label class="toggle" style="margin-top:8px"><input type="checkbox" id="show-firms" checked><span>Exibir focos FIRMS no mapa</span></label>
+        <div class="src" style="margin-top:11px"><div class="n">INPE <small>focos multi-satélite · via proxy /api/inpe</small></div><div class="v" id="v-inpe">aguardando…</div></div>
+        <label class="toggle" style="margin-top:8px"><input type="checkbox" id="show-inpe" checked><span>Exibir focos INPE no mapa</span></label>
         <button class="btn" id="btn-inpe-window">Janela INPE: 24 h</button>
         <button class="btn" id="btn-refresh">↻ Atualizar dados</button>
       </div>
@@ -284,7 +286,8 @@ const BIOMA = {
 };
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 
-const state={data:null, focos:null, inpeFocos:null, inpeMeta:null, inpeWindow:24, windOverride:false, wind:15,
+const state={data:null, focos:null, inpeFocos:null, inpeMeta:null, inpeWindow:24,
+             showFirms:true, showInpe:true, windOverride:false, wind:15,
              filter:new Set(Object.keys(BIOMA)), selected:null, loading:false};
 
 /* ---------- Fórmula de Monte Alegre (Soares, 1972) ---------- */
@@ -431,13 +434,11 @@ async function loadFocos(){
     setPill('p-firms', j.stale?'warn':'ok');
     const idade=j.cached?(' · cache '+Math.round(j.age_s/60)+' min'):'';
     document.getElementById('v-firms').textContent=j.focos.length+' focos · 24 h'+idade+(j.stale?' · desatualizado':'');
-    document.getElementById('lg-foco').style.display='flex';
   }catch(e){
     state.focos=null;
     setPill('p-firms','err');
     const semProxy=/Failed to fetch|NetworkError|Load failed|Unexpected token/i.test(e.message);
     document.getElementById('v-firms').textContent=semProxy?'proxy fora do ar':e.message;
-    document.getElementById('lg-foco').style.display='none';
   }
   draw();
 }
@@ -466,7 +467,6 @@ async function loadInpe(){
     state.inpeFocos=j.focos.map(f=>({...f,whenMs:new Date(f.when).getTime()}));
     state.inpeMeta={cached:j.cached,age_s:j.age_s,stale:j.stale};
     setPill('p-inpe', j.stale?'warn':'ok');
-    document.getElementById('lg-inpe').style.display='flex';
     updateInpeLabel();
   }catch(e){
     state.inpeFocos=null;
@@ -474,7 +474,6 @@ async function loadInpe(){
     setPill('p-inpe','err');
     const semProxy=/Failed to fetch|NetworkError|Load failed|Unexpected token/i.test(e.message);
     document.getElementById('v-inpe').textContent=semProxy?'proxy fora do ar':e.message;
-    document.getElementById('lg-inpe').style.display='none';
   }
   draw();
 }
@@ -492,13 +491,15 @@ let markers={};
 
 function draw(){
   layer.clearLayers(); focoLayer.clearLayers(); inpeLayer.clearLayers(); markers={};
-  if(state.focos){
+  document.getElementById('lg-foco').style.display=(state.focos&&state.showFirms)?'flex':'none';
+  document.getElementById('lg-inpe').style.display=(state.inpeFocos&&state.showInpe)?'flex':'none';
+  if(state.showFirms&&state.focos){
     state.focos.forEach(f=>{
       L.marker([f.lat,f.lng],{icon:L.divIcon({className:'',html:'<div class="foco"></div>',iconSize:[5,5]}),
         interactive:false}).addTo(focoLayer);
     });
   }
-  const inpeVis=visibleInpe();
+  const inpeVis=state.showInpe?visibleInpe():null;
   if(inpeVis){
     inpeVis.forEach(f=>{
       L.marker([f.lat,f.lng],{icon:L.divIcon({className:'',html:'<div class="foco-inpe"></div>',iconSize:[5,5]}),
@@ -643,6 +644,9 @@ document.getElementById('btn-inpe-window').onclick=()=>{
   updateInpeLabel();
   draw();
 };
+
+document.getElementById('show-firms').onchange=e=>{ state.showFirms=e.target.checked; draw(); };
+document.getElementById('show-inpe').onchange=e=>{ state.showInpe=e.target.checked; draw(); };
 
 const chips=document.getElementById('chips');
 Object.entries(BIOMA).forEach(([k,b])=>{

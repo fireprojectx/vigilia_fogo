@@ -146,6 +146,7 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
 .pulse{animation:pulse 1.8s ease-out infinite}
 @keyframes pulse{0%{transform:scale(.8);opacity:.85}70%{transform:scale(2.5);opacity:0}100%{opacity:0}}
 .foco{width:5px;height:5px;border-radius:50%;background:#FF3B1F;box-shadow:0 0 6px 1px #FF3B1F}
+.foco-inpe{width:5px;height:5px;border-radius:50%;background:#3BC8F2;box-shadow:0 0 6px 1px #3BC8F2}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 @media(max-width:940px){
   body{overflow:auto}
@@ -172,6 +173,7 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
     <div class="header-meta">
       <div class="pill load" id="p-meteo"><span class="d"></span><span>Open-Meteo</span></div>
       <div class="pill" id="p-firms"><span class="d"></span><span>FIRMS</span></div>
+      <div class="pill" id="p-inpe"><span class="d"></span><span>INPE</span></div>
       <div class="pill" id="p-time"><span class="d" style="background:var(--ember)"></span><span id="upd">—</span></div>
     </div>
   </header>
@@ -192,6 +194,8 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
         <div class="lg-row"><span class="sw" style="background:var(--r-baixo)"></span>Baixo · 0–20</div>
         <div class="lg-row" id="lg-foco" style="display:none;margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
           <span class="sw" style="background:#FF3B1F;width:9px;height:9px;border-radius:50%"></span>Foco de calor (VIIRS)</div>
+        <div class="lg-row" id="lg-inpe" style="display:none">
+          <span class="sw" style="background:#3BC8F2;width:9px;height:9px;border-radius:50%"></span><span id="lg-inpe-label">Foco INPE (24 h)</span></div>
       </div>
     </div>
 
@@ -200,6 +204,8 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
         <p class="eyebrow"><span class="num">01</span> Fontes de dados</p>
         <div class="src"><div class="n">Open-Meteo <small>UR, chuva, vento · ECMWF/GFS</small></div><div class="v" id="v-meteo">carregando…</div></div>
         <div class="src"><div class="n">NASA FIRMS <small>focos VIIRS · via proxy /api/firms</small></div><div class="v" id="v-firms">aguardando…</div></div>
+        <div class="src"><div class="n">INPE <small>focos multi-satélite · via proxy /api/inpe</small></div><div class="v" id="v-inpe">aguardando…</div></div>
+        <button class="btn" id="btn-inpe-window">Janela INPE: 24 h</button>
         <button class="btn" id="btn-refresh">↻ Atualizar dados</button>
       </div>
 
@@ -278,7 +284,7 @@ const BIOMA = {
 };
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 
-const state={data:null, focos:null, windOverride:false, wind:15,
+const state={data:null, focos:null, inpeFocos:null, inpeMeta:null, inpeWindow:24, windOverride:false, wind:15,
              filter:new Set(Object.keys(BIOMA)), selected:null, loading:false};
 
 /* ---------- Fórmula de Monte Alegre (Soares, 1972) ---------- */
@@ -436,22 +442,67 @@ async function loadFocos(){
   draw();
 }
 
+/* ---------- INPE (focos multi-satélite, 24h/48h) ---------- */
+function visibleInpe(){
+  if(!state.inpeFocos) return null;
+  const cutoff=Date.now()-state.inpeWindow*3600*1000;
+  return state.inpeFocos.filter(f=>f.whenMs>=cutoff);
+}
+function updateInpeLabel(){
+  const vis=visibleInpe()||[];
+  const meta=state.inpeMeta;
+  const idade=meta&&meta.cached?(' · cache '+Math.round(meta.age_s/60)+' min'):'';
+  document.getElementById('v-inpe').textContent=vis.length+' focos · '+state.inpeWindow+' h'+idade+(meta&&meta.stale?' · desatualizado':'');
+  document.getElementById('lg-inpe-label').textContent='Foco INPE ('+state.inpeWindow+' h)';
+  document.getElementById('btn-inpe-window').textContent='Janela INPE: '+state.inpeWindow+' h';
+}
+async function loadInpe(){
+  setPill('p-inpe','load'); document.getElementById('v-inpe').textContent='carregando…';
+  try{
+    const r=await fetch('/api/inpe');
+    const j=await r.json().catch(()=>null);
+    if(!r.ok) throw new Error((j&&j.error)||('HTTP '+r.status));
+    if(!j||!Array.isArray(j.focos)) throw new Error('resposta inesperada');
+    state.inpeFocos=j.focos.map(f=>({...f,whenMs:new Date(f.when).getTime()}));
+    state.inpeMeta={cached:j.cached,age_s:j.age_s,stale:j.stale};
+    setPill('p-inpe', j.stale?'warn':'ok');
+    document.getElementById('lg-inpe').style.display='flex';
+    updateInpeLabel();
+  }catch(e){
+    state.inpeFocos=null;
+    state.inpeMeta=null;
+    setPill('p-inpe','err');
+    const semProxy=/Failed to fetch|NetworkError|Load failed|Unexpected token/i.test(e.message);
+    document.getElementById('v-inpe').textContent=semProxy?'proxy fora do ar':e.message;
+    document.getElementById('lg-inpe').style.display='none';
+  }
+  draw();
+}
+
 /* ---------- Mapa ---------- */
 const map=L.map('map',{zoomControl:true,attributionControl:false}).setView([-18.5,-44.4],6);
 L.control.attribution({position:'bottomright',prefix:false})
- .addAttribution('Open-Meteo · NASA FIRMS · IBGE · © CARTO/OSM').addTo(map);
+ .addAttribution('Open-Meteo · NASA FIRMS · INPE · IBGE · © CARTO/OSM').addTo(map);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{maxZoom:12,minZoom:5}).addTo(map);
 L.geoJSON(MG_OUTLINE,{style:{color:'#3E5872',weight:1.4,fill:true,fillColor:'#111c27',fillOpacity:.55}}).addTo(map);
 const focoLayer=L.layerGroup().addTo(map);
+const inpeLayer=L.layerGroup().addTo(map);
 const layer=L.layerGroup().addTo(map);
 let markers={};
 
 function draw(){
-  layer.clearLayers(); focoLayer.clearLayers(); markers={};
+  layer.clearLayers(); focoLayer.clearLayers(); inpeLayer.clearLayers(); markers={};
   if(state.focos){
     state.focos.forEach(f=>{
       L.marker([f.lat,f.lng],{icon:L.divIcon({className:'',html:'<div class="foco"></div>',iconSize:[5,5]}),
         interactive:false}).addTo(focoLayer);
+    });
+  }
+  const inpeVis=visibleInpe();
+  if(inpeVis){
+    inpeVis.forEach(f=>{
+      L.marker([f.lat,f.lng],{icon:L.divIcon({className:'',html:'<div class="foco-inpe"></div>',iconSize:[5,5]}),
+        interactive:false}).addTo(inpeLayer);
     });
   }
   MUNIS.forEach(m=>{
@@ -584,7 +635,13 @@ wind.oninput=()=>{state.wind=+wind.value;document.getElementById('windv').textCo
 
 document.getElementById('btn-refresh').onclick=async()=>{
   const b=document.getElementById('btn-refresh'); b.disabled=true;
-  await loadMeteo(); await loadFocos(); b.disabled=false;
+  await loadMeteo(); await loadFocos(); await loadInpe(); b.disabled=false;
+};
+
+document.getElementById('btn-inpe-window').onclick=()=>{
+  state.inpeWindow = state.inpeWindow===24 ? 48 : 24;
+  updateInpeLabel();
+  draw();
 };
 
 const chips=document.getElementById('chips');
@@ -618,7 +675,7 @@ document.getElementById('export').onclick=()=>{
   a.download='iriv_mg_'+ts.slice(0,10)+'.csv';a.click();
 };
 
-loadMeteo().then(loadFocos);
+loadMeteo().then(()=>{ loadFocos(); loadInpe(); });
 </script>
 </body>
 </html>

@@ -26,6 +26,20 @@ const DAY_RANGE = 1;
 const TTL_MS = 10 * 60 * 1000;
 let cache = { at: 0, body: null, count: 0 };
 
+// INPE (Programa Queimadas) — CSV diário público, sem chave, multi-satélite.
+// Cobre um estado ("MINAS GERAIS") e junta os últimos 3 arquivos (UTC) para
+// garantir 48h completas mesmo perto da virada do dia.
+const INPE_BASE = 'https://dataserver-coids.inpe.br/queimadas/queimadas/focos/csv/diario/Brasil';
+const INPE_ESTADO = 'MINAS GERAIS';
+let inpeCache = { at: 0, body: null, count: 0 };
+
+function inpeUrl(date) {
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(date.getUTCDate()).padStart(2, '0');
+  return `${INPE_BASE}/focos_diario_br_${y}${m}${d}.csv`;
+}
+
 app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
 
 app.get('/api/firms', async (req, res) => {
@@ -76,12 +90,66 @@ app.get('/api/firms', async (req, res) => {
   }
 });
 
+app.get('/api/inpe', async (req, res) => {
+  const fresh = Date.now() - inpeCache.at < TTL_MS;
+  if (fresh && inpeCache.body) {
+    return res.json({ ...inpeCache.body, cached: true, age_s: Math.round((Date.now() - inpeCache.at) / 1000) });
+  }
+
+  const now = Date.now();
+  const days = [0, 1, 2].map(k => inpeUrl(new Date(now - k * 86400000)));
+
+  try {
+    const texts = await Promise.all(days.map(async url => {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 20000);
+        const r = await fetch(url, { signal: ctrl.signal });
+        clearTimeout(timer);
+        return r.ok ? await r.text() : null;
+      } catch {
+        return null;
+      }
+    }));
+
+    if (texts.every(t => !t)) throw new Error('Nenhum arquivo diário do INPE respondeu.');
+
+    const seen = new Set();
+    const focos = [];
+    for (const txt of texts) {
+      if (!txt) continue;
+      for (const foco of parseInpeCsv(txt)) {
+        if (seen.has(foco.id)) continue;
+        seen.add(foco.id);
+        focos.push(foco);
+      }
+    }
+    focos.sort((a, b) => b.when.localeCompare(a.when));
+
+    inpeCache = { at: Date.now(), body: { focos, updated: new Date().toISOString() }, count: focos.length };
+    res.json({ ...inpeCache.body, cached: false, age_s: 0 });
+  } catch (e) {
+    if (inpeCache.body) {
+      return res.json({
+        ...inpeCache.body,
+        cached: true,
+        stale: true,
+        age_s: Math.round((Date.now() - inpeCache.at) / 1000),
+        warning: e.message
+      });
+    }
+    res.status(502).json({ error: e.message });
+  }
+});
+
 app.get('/api/health', (req, res) => {
   res.json({
     ok: true,
     firms_key: MAP_KEY ? 'configurada' : 'ausente',
     cache_focos: cache.count,
-    cache_age_s: cache.at ? Math.round((Date.now() - cache.at) / 1000) : null
+    cache_age_s: cache.at ? Math.round((Date.now() - cache.at) / 1000) : null,
+    cache_inpe_focos: inpeCache.count,
+    cache_inpe_age_s: inpeCache.at ? Math.round((Date.now() - inpeCache.at) / 1000) : null
   });
 });
 
@@ -107,6 +175,38 @@ function parseCsv(txt) {
       conf: iConf >= 0 ? c[iConf] : '',
       frp: iFrp >= 0 ? parseFloat(c[iFrp]) || 0 : 0,
       when: iDate >= 0 ? `${c[iDate]} ${(c[iTime] || '').padStart(4, '0')}` : ''
+    });
+  }
+  return out;
+}
+
+function parseInpeCsv(txt) {
+  const lines = txt.trim().split('\n');
+  const head = lines[0].split(',').map(s => s.trim());
+  const iId = head.indexOf('id');
+  const iLat = head.indexOf('lat');
+  const iLng = head.indexOf('lon');
+  const iWhen = head.indexOf('data_hora_gmt');
+  const iSat = head.indexOf('satelite');
+  const iEstado = head.indexOf('estado');
+  const iBioma = head.indexOf('bioma');
+  const iFrp = head.indexOf('frp');
+  if (iLat < 0 || iLng < 0 || iEstado < 0) throw new Error('CSV do INPE sem colunas esperadas.');
+
+  const out = [];
+  for (let i = 1; i < lines.length; i++) {
+    const c = lines[i].split(',').map(s => s.trim());
+    if (c[iEstado] !== INPE_ESTADO) continue;
+    const lat = parseFloat(c[iLat]);
+    const lng = parseFloat(c[iLng]);
+    if (!isFinite(lat) || !isFinite(lng)) continue;
+    out.push({
+      id: c[iId] || `${c[iWhen]}_${lat}_${lng}`,
+      lat, lng,
+      sat: c[iSat] || '',
+      bioma: iBioma >= 0 ? c[iBioma] : '',
+      frp: iFrp >= 0 ? parseFloat(c[iFrp]) || 0 : 0,
+      when: `${(c[iWhen] || '').replace(' ', 'T')}Z`
     });
   }
   return out;

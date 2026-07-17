@@ -58,11 +58,22 @@ automaticamente, o `server.js` já respeita.
 |---|---|
 | `GET /` | app |
 | `GET /api/firms` | `{ focos: [{lat, lng, conf, frp, when}], sensor, updated, cached, age_s }` |
+| `GET /api/inpe` | `{ focos: [{id, lat, lng, sat, bioma, frp, when}], updated, cached, age_s }` |
 | `GET /api/health` | status da chave e do cache |
 
 O `/api/firms` tem cache de 10 min em memória — os satélites passam ~2× por dia,
 recarregar a cada request só desperdiça cota. Se o FIRMS cair e houver cache antigo,
 ele é servido com `stale: true` em vez de deixar o painel cego.
+
+O `/api/inpe` é um segundo proxy, independente do FIRMS: lê os arquivos CSV diários
+e públicos do Programa Queimadas (INPE), que não exigem chave. Junta os últimos 3
+dias (UTC) e filtra por `estado == "MINAS GERAIS"`, devolvendo os focos com timestamp
+em UTC — o front-end aplica a janela de 24h/48h no navegador, sem precisar recarregar
+o proxy a cada troca. Mesmo cache de 10 min e mesmo fallback `stale` do FIRMS.
+
+Os dois conjuntos de focos (FIRMS e INPE) são exibidos como camadas separadas no mapa,
+lado a lado — o INPE é só uma camada visual de comparação; o cálculo do índice IRIV
+continua usando exclusivamente o FIRMS para o componente de Ignição.
 
 ## Limites conhecidos
 
@@ -78,5 +89,6 @@ ele é servido com `stale: true` em vez de deixar o painel cego.
 
 - Open-Meteo — https://open-meteo.com (ECMWF/GFS, sem chave)
 - NASA FIRMS — https://firms.modaps.eosdis.nasa.gov
+- INPE (Programa Queimadas) — https://data.inpe.br/queimadas/dados-abertos (CSV diário, sem chave)
 - Contorno municipal — IBGE
 - Método — CSR/UFMG (FIP-Cerrado); FMA: Soares, R.V. (1972)

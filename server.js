@@ -208,9 +208,9 @@ app.get('/api/uc', async (req, res) => {
   try {
     const fc = await fetchWfsLayer(UC_LAYER);
     const features = fc.features
-      .filter(f => f.geometry)
+      .filter(f => f.geometry && f.properties.nome_uc)
       .map(f => ({
-        nome: f.properties.nome_uc || '',
+        nome: f.properties.nome_uc,
         categoria: f.properties.categoria || '',
         grupo: f.properties.grupo || '',
         geometry: simplifyGeometry(f.geometry, SIMPLIFY_TOL)
@@ -246,8 +246,11 @@ app.get('/api/uc-amortecimento', async (req, res) => {
       fc.features.forEach(f => {
         if (!f.geometry) return;
         if (f.properties.esfera !== 'Estadual') return;
+        // ide_2011_..._raio_3km_pol usa "nome_uc"; ide_2011_..._plano_manejo_pol usa "un_conserv".
+        const nome = f.properties.nome_uc || f.properties.un_conserv;
+        if (!nome) return;
         features.push({
-          nome: f.properties.nome_uc || '',
+          nome,
           categoria: f.properties.categoria || '',
           geometry: simplifyGeometry(f.geometry, SIMPLIFY_TOL)
         });

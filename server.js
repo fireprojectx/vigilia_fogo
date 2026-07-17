@@ -19,7 +19,11 @@ const MAP_KEY = process.env.FIRMS_MAP_KEY;
 // Bounding box de Minas Gerais (oeste,sul,leste,norte)
 const MG_BBOX = '-51.1,-22.95,-39.85,-14.2';
 const SENSOR = process.env.FIRMS_SENSOR || 'VIIRS_SNPP_NRT';
-const DAY_RANGE = 1;
+// day_range=2 traz ~48h num único request — o front-end filtra 24h/48h no
+// navegador. Isso NÃO aumenta o número de transações contra a MAP_KEY: o
+// cache abaixo já garante no máximo 1 chamada ao FIRMS a cada 10 min,
+// independente de quantos clientes acessem /api/firms nesse intervalo.
+const DAY_RANGE = 2;
 
 // Cache em memória. O FIRMS limita a 5.000 transações / 10 min e os satélites
 // passam ~2x por dia, então recarregar a cada request é desperdício puro.
@@ -170,11 +174,12 @@ function parseCsv(txt) {
     const lat = parseFloat(c[iLat]);
     const lng = parseFloat(c[iLng]);
     if (!isFinite(lat) || !isFinite(lng)) continue;
+    const time = (iTime >= 0 ? c[iTime] || '' : '').padStart(4, '0');
     out.push({
       lat, lng,
       conf: iConf >= 0 ? c[iConf] : '',
       frp: iFrp >= 0 ? parseFloat(c[iFrp]) || 0 : 0,
-      when: iDate >= 0 ? `${c[iDate]} ${(c[iTime] || '').padStart(4, '0')}` : ''
+      when: iDate >= 0 ? `${c[iDate]}T${time.slice(0, 2)}:${time.slice(2, 4)}:00Z` : ''
     });
   }
   return out;

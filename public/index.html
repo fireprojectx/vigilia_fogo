@@ -193,7 +193,7 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
         <div class="lg-row"><span class="sw" style="background:var(--r-mod)"></span>Moderado · 20–40</div>
         <div class="lg-row"><span class="sw" style="background:var(--r-baixo)"></span>Baixo · 0–20</div>
         <div class="lg-row" id="lg-foco" style="display:none;margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
-          <span class="sw" style="background:#FF3B1F;width:9px;height:9px;border-radius:50%"></span>Foco de calor (VIIRS)</div>
+          <span class="sw" style="background:#FF3B1F;width:9px;height:9px;border-radius:50%"></span><span id="lg-foco-label">Foco de calor VIIRS (24 h)</span></div>
         <div class="lg-row" id="lg-inpe" style="display:none">
           <span class="sw" style="background:#3BC8F2;width:9px;height:9px;border-radius:50%"></span><span id="lg-inpe-label">Foco INPE (24 h)</span></div>
       </div>
@@ -205,6 +205,7 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
         <div class="src"><div class="n">Open-Meteo <small>UR, chuva, vento · ECMWF/GFS</small></div><div class="v" id="v-meteo">carregando…</div></div>
         <div class="src"><div class="n">NASA FIRMS <small>focos VIIRS · via proxy /api/firms</small></div><div class="v" id="v-firms">aguardando…</div></div>
         <label class="toggle" style="margin-top:8px"><input type="checkbox" id="show-firms" checked><span>Exibir focos FIRMS no mapa</span></label>
+        <button class="btn" id="btn-firms-window">Janela FIRMS: 24 h</button>
         <div class="src" style="margin-top:11px"><div class="n">INPE <small>focos multi-satélite · via proxy /api/inpe</small></div><div class="v" id="v-inpe">aguardando…</div></div>
         <label class="toggle" style="margin-top:8px"><input type="checkbox" id="show-inpe" checked><span>Exibir focos INPE no mapa</span></label>
         <button class="btn" id="btn-inpe-window">Janela INPE: 24 h</button>
@@ -286,7 +287,8 @@ const BIOMA = {
 };
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 
-const state={data:null, focos:null, inpeFocos:null, inpeMeta:null, inpeWindow:24,
+const state={data:null, focos:null, firmsMeta:null, firmsWindow:24,
+             inpeFocos:null, inpeMeta:null, inpeWindow:24,
              showFirms:true, showInpe:true, windOverride:false, wind:15,
              filter:new Set(Object.keys(BIOMA)), selected:null, loading:false};
 
@@ -349,7 +351,10 @@ function compute(m){
 
   let ign=null, nFocos=null;
   if(state.focos){
-    nFocos=state.focos.filter(f=>haversine(m.lat,m.lng,f.lat,f.lng)<=35).length;
+    // Igniçāo sempre usa as últimas 24h, fixo — o toggle de janela do FIRMS
+    // no painel é só visual e não deve mudar o IRIV ao ser trocado.
+    const cutoff=Date.now()-24*3600*1000;
+    nFocos=state.focos.filter(f=>f.whenMs>=cutoff&&haversine(m.lat,m.lng,f.lat,f.lng)<=35).length;
     ign=clamp(100*(1-Math.exp(-nFocos/8)),0,100);
   }
   const iriv = ign===null
@@ -422,7 +427,20 @@ async function loadMeteo(){
   draw();
 }
 
-/* ---------- NASA FIRMS ---------- */
+/* ---------- NASA FIRMS (24h/48h para exibição; igniçāo do IRIV usa 24h fixo) ---------- */
+function visibleFirms(){
+  if(!state.focos) return null;
+  const cutoff=Date.now()-state.firmsWindow*3600*1000;
+  return state.focos.filter(f=>f.whenMs>=cutoff);
+}
+function updateFirmsLabel(){
+  const vis=visibleFirms()||[];
+  const meta=state.firmsMeta;
+  const idade=meta&&meta.cached?(' · cache '+Math.round(meta.age_s/60)+' min'):'';
+  document.getElementById('v-firms').textContent=vis.length+' focos · '+state.firmsWindow+' h'+idade+(meta&&meta.stale?' · desatualizado':'');
+  document.getElementById('lg-foco-label').textContent='Foco de calor VIIRS ('+state.firmsWindow+' h)';
+  document.getElementById('btn-firms-window').textContent='Janela FIRMS: '+state.firmsWindow+' h';
+}
 async function loadFocos(){
   setPill('p-firms','load'); document.getElementById('v-firms').textContent='carregando…';
   try{
@@ -430,12 +448,13 @@ async function loadFocos(){
     const j=await r.json().catch(()=>null);
     if(!r.ok) throw new Error((j&&j.error)||('HTTP '+r.status));
     if(!j||!Array.isArray(j.focos)) throw new Error('resposta inesperada');
-    state.focos=j.focos;
+    state.focos=j.focos.map(f=>({...f,whenMs:new Date(f.when).getTime()}));
+    state.firmsMeta={cached:j.cached,age_s:j.age_s,stale:j.stale};
     setPill('p-firms', j.stale?'warn':'ok');
-    const idade=j.cached?(' · cache '+Math.round(j.age_s/60)+' min'):'';
-    document.getElementById('v-firms').textContent=j.focos.length+' focos · 24 h'+idade+(j.stale?' · desatualizado':'');
+    updateFirmsLabel();
   }catch(e){
     state.focos=null;
+    state.firmsMeta=null;
     setPill('p-firms','err');
     const semProxy=/Failed to fetch|NetworkError|Load failed|Unexpected token/i.test(e.message);
     document.getElementById('v-firms').textContent=semProxy?'proxy fora do ar':e.message;
@@ -493,8 +512,9 @@ function draw(){
   layer.clearLayers(); focoLayer.clearLayers(); inpeLayer.clearLayers(); markers={};
   document.getElementById('lg-foco').style.display=(state.focos&&state.showFirms)?'flex':'none';
   document.getElementById('lg-inpe').style.display=(state.inpeFocos&&state.showInpe)?'flex':'none';
-  if(state.showFirms&&state.focos){
-    state.focos.forEach(f=>{
+  const firmsVis=state.showFirms?visibleFirms():null;
+  if(firmsVis){
+    firmsVis.forEach(f=>{
       L.marker([f.lat,f.lng],{icon:L.divIcon({className:'',html:'<div class="foco"></div>',iconSize:[5,5]}),
         interactive:false}).addTo(focoLayer);
     });
@@ -642,6 +662,12 @@ document.getElementById('btn-refresh').onclick=async()=>{
 document.getElementById('btn-inpe-window').onclick=()=>{
   state.inpeWindow = state.inpeWindow===24 ? 48 : 24;
   updateInpeLabel();
+  draw();
+};
+
+document.getElementById('btn-firms-window').onclick=()=>{
+  state.firmsWindow = state.firmsWindow===24 ? 48 : 24;
+  updateFirmsLabel();
   draw();
 };
 

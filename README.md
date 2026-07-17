@@ -65,6 +65,13 @@ O `/api/firms` tem cache de 10 min em memória — os satélites passam ~2× por
 recarregar a cada request só desperdiça cota. Se o FIRMS cair e houver cache antigo,
 ele é servido com `stale: true` em vez de deixar o painel cego.
 
+O request ao FIRMS usa `day_range=2` (até 48h numa única chamada) para que o painel
+possa alternar entre janela de 24h e 48h sem novo request — o `day_range` maior não
+aumenta o número de transações contra a MAP_KEY, porque o cache já garante no máximo
+1 chamada ao FIRMS a cada 10 min, não importa quantos clientes acessem `/api/firms`
+nesse intervalo. O componente de Ignição do IRIV, porém, sempre usa um corte fixo de
+24h — trocar a janela de exibição no painel é só visual e não muda o índice.
+
 O `/api/inpe` é um segundo proxy, independente do FIRMS: lê os arquivos CSV diários
 e públicos do Programa Queimadas (INPE), que não exigem chave. Junta os últimos 3
 dias (UTC) e filtra por `estado == "MINAS GERAIS"`, devolvendo os focos com timestamp

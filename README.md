@@ -59,6 +59,7 @@ automaticamente, o `server.js` já respeita.
 | `GET /` | app |
 | `GET /api/firms` | `{ focos: [{lat, lng, conf, frp, when}], sensor, updated, cached, age_s }` |
 | `GET /api/inpe` | `{ focos: [{id, lat, lng, sat, bioma, frp, when}], updated, cached, age_s }` |
+| `GET /api/articulacao` | `{ municipios: [{ibge, municipio, cob, bbm, tipo, unidade, lat, lng}], updated, cached, age_s }` |
 | `GET /api/health` | status da chave e do cache |
 
 O `/api/firms` tem cache de 10 min em memória — os satélites passam ~2× por dia,
@@ -82,6 +83,14 @@ Os dois conjuntos de focos (FIRMS e INPE) são exibidos como camadas separadas n
 lado a lado — o INPE é só uma camada visual de comparação; o cálculo do índice IRIV
 continua usando exclusivamente o FIRMS para o componente de Ignição.
 
+O `/api/articulacao` é um terceiro proxy: lê a planilha pública do Corpo de Bombeiros MG
+com a articulação vigente (COB e BBM responsáveis por cada um dos 853 municípios do
+estado) e devolve os dados já convertidos em JSON, com cache de 6 h (é uma tabela
+administrativa, atualizada raramente — não precisa do TTL curto do FIRMS/INPE). Os 34
+municípios de referência são casados por nome com essa planilha e ganham colunas de
+COB/BBM/unidade responsável no painel; os demais ~819 municípios entram no mapa só como
+pontos filtráveis por COB/BBM, sem clima nem IRIV — ver "Limites conhecidos".
+
 ## Limites conhecidos
 
 - Clima e vento vêm de modelo global (ECMWF/GFS), não de estação de superfície.
@@ -89,13 +98,19 @@ continua usando exclusivamente o FIRMS para o componente de Ignição.
 - Declividade e combustibilidade por fitofisionomia são parâmetros fixos por bioma,
   não medidos por pixel. O caminho natural é substituir por um raster de declividade
   (SRTM/Copernicus) e uso do solo (MapBiomas).
-- 34 municípios de referência. Os 853 centroides saem do GeoJSON do IBGE
-  (`geojs-31-mun.json`) se quiser cobertura total.
+- 34 municípios de referência têm clima (Open-Meteo) e IRIV calculado. Os filtros de COB
+  e BBM cobrem os 853 municípios de MG (via planilha do CBMMG), mas os demais ~819
+  aparecem no mapa sem risco — expandir o Open-Meteo para todos eles não é viável numa
+  única chamada (URL longa demais, HTTP 414 acima de ~300 coordenadas) e exigiria vários
+  megabytes de JSON por carregamento. Também falta uma fonte confiável de bioma
+  predominante por município para esses 819 — sem isso o componente de espalhamento do
+  IRIV ficaria impreciso.
 
 ## Fontes
 
 - Open-Meteo — https://open-meteo.com (ECMWF/GFS, sem chave)
 - NASA FIRMS — https://firms.modaps.eosdis.nasa.gov
 - INPE (Programa Queimadas) — https://data.inpe.br/queimadas/dados-abertos (CSV diário, sem chave)
+- Corpo de Bombeiros MG — planilha pública de articulação (COB/BBM por município)
 - Contorno municipal — IBGE
 - Método — CSR/UFMG (FIP-Cerrado); FMA: Soares, R.V. (1972)

@@ -37,6 +37,13 @@ const INPE_BASE = 'https://dataserver-coids.inpe.br/queimadas/queimadas/focos/cs
 const INPE_ESTADO = 'MINAS GERAIS';
 let inpeCache = { at: 0, body: null, count: 0 };
 
+// Articulação CBMMG (COB/BBM por município) — planilha pública do Corpo de Bombeiros,
+// publicada como CSV. É uma tabela administrativa, atualizada raramente, então o cache
+// pode ser bem mais longo que o do FIRMS/INPE.
+const ARTIC_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRQFTo0KYBucY7PDb0lT5qys-_t9KrC6ey3dflIuJMtLlKoQcXRQhWLwykmVd6U14A5JN35KdWOpB97/pub?output=csv&gid=995676603';
+const ARTIC_TTL_MS = 6 * 60 * 60 * 1000;
+let articCache = { at: 0, body: null, count: 0 };
+
 function inpeUrl(date) {
   const y = date.getUTCFullYear();
   const m = String(date.getUTCMonth() + 1).padStart(2, '0');
@@ -146,6 +153,40 @@ app.get('/api/inpe', async (req, res) => {
   }
 });
 
+app.get('/api/articulacao', async (req, res) => {
+  const fresh = Date.now() - articCache.at < ARTIC_TTL_MS;
+  if (fresh && articCache.body) {
+    return res.json({ ...articCache.body, cached: true, age_s: Math.round((Date.now() - articCache.at) / 1000) });
+  }
+
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20000);
+    const r = await fetch(ARTIC_URL, { signal: ctrl.signal });
+    clearTimeout(timer);
+
+    if (!r.ok) throw new Error(`Planilha respondeu HTTP ${r.status}`);
+    const txt = await r.text();
+
+    const municipios = parseArticulacaoCsv(txt);
+    if (!municipios.length) throw new Error('Planilha sem linhas válidas.');
+
+    articCache = { at: Date.now(), body: { municipios, updated: new Date().toISOString() }, count: municipios.length };
+    res.json({ ...articCache.body, cached: false, age_s: 0 });
+  } catch (e) {
+    if (articCache.body) {
+      return res.json({
+        ...articCache.body,
+        cached: true,
+        stale: true,
+        age_s: Math.round((Date.now() - articCache.at) / 1000),
+        warning: e.message
+      });
+    }
+    res.status(502).json({ error: e.message });
+  }
+});
+
 app.get('/api/health', (req, res) => {
   res.json({
     ok: true,
@@ -153,7 +194,9 @@ app.get('/api/health', (req, res) => {
     cache_focos: cache.count,
     cache_age_s: cache.at ? Math.round((Date.now() - cache.at) / 1000) : null,
     cache_inpe_focos: inpeCache.count,
-    cache_inpe_age_s: inpeCache.at ? Math.round((Date.now() - inpeCache.at) / 1000) : null
+    cache_inpe_age_s: inpeCache.at ? Math.round((Date.now() - inpeCache.at) / 1000) : null,
+    cache_artic_municipios: articCache.count,
+    cache_artic_age_s: articCache.at ? Math.round((Date.now() - articCache.at) / 1000) : null
   });
 });
 
@@ -212,6 +255,70 @@ function parseInpeCsv(txt) {
       bioma: iBioma >= 0 ? c[iBioma] : '',
       frp: iFrp >= 0 ? parseFloat(c[iFrp]) || 0 : 0,
       when: `${(c[iWhen] || '').replace(' ', 'T')}Z`
+    });
+  }
+  return out;
+}
+
+// Parser de linha CSV com suporte a campos entre aspas (a planilha de articulação usa
+// vírgula decimal em latitude/longitude, ex: "-18,48330" — split(',') ingênuo quebraria
+// esse campo em dois).
+function parseCsvLine(line) {
+  const out = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQ) {
+      if (c === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; }
+        else inQ = false;
+      } else cur += c;
+    } else if (c === '"') {
+      inQ = true;
+    } else if (c === ',') {
+      out.push(cur); cur = '';
+    } else {
+      cur += c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+function titleCase(s) {
+  return s.toLowerCase().replace(/(^|[\s-])\p{L}/gu, c => c.toUpperCase());
+}
+
+function parseArticulacaoCsv(txt) {
+  const lines = txt.trim().split('\n');
+  const head = parseCsvLine(lines[0]).map(s => s.trim());
+  const iIbge = head.indexOf('Código [7]');
+  const iNome = head.indexOf('MUNICÍPIOS INPE');
+  const iCob = head.indexOf('COB');
+  const iBbm = head.indexOf('BBM');
+  const iTipo = head.indexOf('TIPO');
+  const iUnidade = head.indexOf('Nome da unidade');
+  const iLat = head.indexOf('latitude');
+  const iLng = head.indexOf('longitude');
+  if (iNome < 0 || iCob < 0 || iBbm < 0 || iLat < 0 || iLng < 0) {
+    throw new Error('CSV de articulação sem colunas esperadas.');
+  }
+
+  const out = [];
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    const c = parseCsvLine(lines[i]);
+    const lat = parseFloat((c[iLat] || '').replace(',', '.'));
+    const lng = parseFloat((c[iLng] || '').replace(',', '.'));
+    if (!isFinite(lat) || !isFinite(lng)) continue;
+    out.push({
+      ibge: iIbge >= 0 ? c[iIbge] : '',
+      municipio: titleCase(c[iNome] || ''),
+      cob: c[iCob] || '',
+      bbm: c[iBbm] || '',
+      tipo: iTipo >= 0 ? c[iTipo] : '',
+      unidade: iUnidade >= 0 ? c[iUnidade] : '',
+      lat, lng
     });
   }
   return out;

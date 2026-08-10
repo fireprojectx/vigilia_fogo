@@ -56,6 +56,35 @@ const UC_TTL_MS = 24 * 60 * 60 * 1000;
 let ucCache = { at: 0, body: null, count: 0 };
 let ucAmortCache = { at: 0, body: null, count: 0 };
 
+// Vento animado (estilo Windy/Ventusky) — grade regular sobre o bbox de MG,
+// consultada em UMA chamada batch ao Open-Meteo (latitude/longitude aceitam
+// listas separadas por vírgula). 0,5° dá ~23x18 = 414 pontos, testado abaixo
+// de 1s de resposta. U/V convertidos a partir de velocidade+direção alimentam
+// o leaflet-velocity, que espera o mesmo formato JSON estilo GRIB2 usado pelo
+// GFS (header com la1/lo1/la2/lo2/dx/dy/nx/ny + array "data" por componente).
+const WIND_STEP = 0.5;
+const WIND_TTL_MS = 15 * 60 * 1000;
+let windCache = { at: 0, body: null, count: 0 };
+
+function buildWindGrid(step) {
+  const [west, south, east, north] = MG_BBOX.split(',').map(Number);
+  const ny = Math.floor((north - south) / step) + 1;
+  const nx = Math.floor((east - west) / step) + 1;
+  const reqLat = [], reqLon = [];
+  for (let j = 0; j < ny; j++) {
+    const lat = +(north - j * step).toFixed(4);
+    for (let i = 0; i < nx; i++) {
+      reqLat.push(lat);
+      reqLon.push(+(west + i * step).toFixed(4));
+    }
+  }
+  return {
+    reqLat, reqLon, nx, ny,
+    la1: north, la2: +(north - (ny - 1) * step).toFixed(4),
+    lo1: west, lo2: +(west + (nx - 1) * step).toFixed(4)
+  };
+}
+
 function inpeUrl(date) {
   const y = date.getUTCFullYear();
   const m = String(date.getUTCMonth() + 1).padStart(2, '0');
@@ -158,6 +187,68 @@ app.get('/api/inpe', async (req, res) => {
         cached: true,
         stale: true,
         age_s: Math.round((Date.now() - inpeCache.at) / 1000),
+        warning: e.message
+      });
+    }
+    res.status(502).json({ error: e.message });
+  }
+});
+
+app.get('/api/wind', async (req, res) => {
+  const fresh = Date.now() - windCache.at < WIND_TTL_MS;
+  if (fresh && windCache.body) {
+    return res.json({ ...windCache.body, cached: true, age_s: Math.round((Date.now() - windCache.at) / 1000) });
+  }
+
+  try {
+    const grid = buildWindGrid(WIND_STEP);
+    const url = 'https://api.open-meteo.com/v1/forecast'
+      + '?latitude=' + grid.reqLat.join(',')
+      + '&longitude=' + grid.reqLon.join(',')
+      + '&current=wind_speed_10m,wind_direction_10m&wind_speed_unit=ms';
+
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 25000);
+    const r = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(timer);
+
+    if (!r.ok) throw new Error(`Open-Meteo respondeu HTTP ${r.status}`);
+    const arr = await r.json();
+    if (!Array.isArray(arr) || arr.length !== grid.reqLat.length) {
+      throw new Error('Resposta inesperada do Open-Meteo (grade de vento).');
+    }
+
+    // direction = de onde o vento vem (convenção meteorológica); U/V descrevem
+    // para onde ele sopra, por isso o sinal negativo em ambas as componentes.
+    const u = new Array(arr.length), v = new Array(arr.length);
+    for (let i = 0; i < arr.length; i++) {
+      const c = arr[i] && arr[i].current;
+      const speed = c ? c.wind_speed_10m || 0 : 0;
+      const rad = (c ? c.wind_direction_10m || 0 : 0) * Math.PI / 180;
+      u[i] = +(-speed * Math.sin(rad)).toFixed(2);
+      v[i] = +(-speed * Math.cos(rad)).toFixed(2);
+    }
+
+    const headerBase = {
+      parameterUnit: 'm.s-1', numberPoints: grid.nx * grid.ny,
+      lo1: grid.lo1, la1: grid.la1, lo2: grid.lo2, la2: grid.la2,
+      dx: WIND_STEP, dy: WIND_STEP, nx: grid.nx, ny: grid.ny,
+      refTime: new Date().toISOString(), forecastTime: 0, scanMode: 0
+    };
+    const gridData = [
+      { header: { ...headerBase, parameterCategory: 2, parameterNumber: 2, parameterNumberName: 'U-component_of_wind' }, data: u },
+      { header: { ...headerBase, parameterCategory: 2, parameterNumber: 3, parameterNumberName: 'V-component_of_wind' }, data: v }
+    ];
+
+    windCache = { at: Date.now(), body: { grid: gridData, updated: new Date().toISOString() }, count: u.length };
+    res.json({ ...windCache.body, cached: false, age_s: 0 });
+  } catch (e) {
+    if (windCache.body) {
+      return res.json({
+        ...windCache.body,
+        cached: true,
+        stale: true,
+        age_s: Math.round((Date.now() - windCache.at) / 1000),
         warning: e.message
       });
     }
@@ -287,7 +378,9 @@ app.get('/api/health', (req, res) => {
     cache_uc_count: ucCache.count,
     cache_uc_age_s: ucCache.at ? Math.round((Date.now() - ucCache.at) / 1000) : null,
     cache_uc_amort_count: ucAmortCache.count,
-    cache_uc_amort_age_s: ucAmortCache.at ? Math.round((Date.now() - ucAmortCache.at) / 1000) : null
+    cache_uc_amort_age_s: ucAmortCache.at ? Math.round((Date.now() - ucAmortCache.at) / 1000) : null,
+    cache_wind_points: windCache.count,
+    cache_wind_age_s: windCache.at ? Math.round((Date.now() - windCache.at) / 1000) : null
   });
 });
 
